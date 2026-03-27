@@ -15,9 +15,11 @@ type FieldBubble = {
 };
 
 const HEADER_HEIGHT = 72;
-const WORLD_SPREAD = 300; // reduced so bubbles are visible on initial load
+const CLUSTER_SPREAD_X = 165;
+const CLUSTER_SPREAD_Y = 110;
 const MIN_BUBBLE_SIZE = 104;
 const MAX_BUBBLE_SIZE = 156;
+const MIN_BUBBLE_GAP = 24;
 
 
 function seededRandom(seed: number) {
@@ -25,35 +27,79 @@ function seededRandom(seed: number) {
   return x - Math.floor(x);
 }
 
+
+function bubblesOverlap(
+  a: { x: number; y: number; size: number },
+  b: { x: number; y: number; size: number }
+) {
+  const distance = Math.hypot(a.x - b.x, a.y - b.y);
+
+  return distance < a.size / 2 + b.size / 2 + MIN_BUBBLE_GAP;
+}
+
 function buildWorldLayout(participants: Participant[]) {
+  const clusterCenters = [
+    { x: 0, y: -CLUSTER_SPREAD_Y },
+    { x: -CLUSTER_SPREAD_X, y: CLUSTER_SPREAD_Y },
+    { x: CLUSTER_SPREAD_X, y: CLUSTER_SPREAD_Y }
+  ];
+
   const clusters: Record<string, { x: number; y: number }> = {};
 
-  participants.forEach((p, i) => {
-    const angle = (i / participants.length) * Math.PI * 2;
-    clusters[p.id] = {
-      x: Math.cos(angle) * WORLD_SPREAD,
-      y: Math.sin(angle) * WORLD_SPREAD
-    };
+  participants.forEach((participant, index) => {
+    const fallbackAngle = (index / participants.length) * Math.PI * 2;
+    clusters[participant.id] =
+      clusterCenters[index] ?? {
+        x: Math.cos(fallbackAngle) * 190,
+        y: Math.sin(fallbackAngle) * 190
+      };
   });
 
   const bubbles: FieldBubble[] = [];
+  const placedBubbles: Array<{ x: number; y: number; size: number }> = [];
 
   participants.forEach((participant) => {
     const center = clusters[participant.id];
 
     participant.interests.forEach((interest, idx) => {
-      const radius = interest.level === 'deep1' ? 120 : interest.level === 'deep2' ? 200 : 280;
-      const angle = seededRandom(idx * 91) * Math.PI * 2;
+      const size = Math.max(MIN_BUBBLE_SIZE, MAX_BUBBLE_SIZE - idx * 8);
+      const radius = interest.level === 'deep1' ? 125 : interest.level === 'deep2' ? 205 : 285;
+      let placedBubble: { x: number; y: number; size: number } | null = null;
 
+      for (let attempt = 0; attempt < 80; attempt += 1) {
+        const angle = seededRandom((idx + 1) * 97 + attempt * 17 + participant.name.length * 23) * Math.PI * 2;
+        const radiusJitter = seededRandom((idx + 1) * 151 + attempt * 29 + participant.id.length * 31) * 28 - 14;
+        const candidate = {
+          x: center.x + Math.cos(angle) * (radius + radiusJitter),
+          y: center.y + Math.sin(angle) * (radius + radiusJitter),
+          size
+        };
+
+        if (placedBubbles.every((existingBubble) => !bubblesOverlap(existingBubble, candidate))) {
+          placedBubble = candidate;
+          break;
+        }
+      }
+
+      if (!placedBubble) {
+        const fallbackAngle = (idx / Math.max(participant.interests.length, 1)) * Math.PI * 2;
+        placedBubble = {
+          x: center.x + Math.cos(fallbackAngle) * (radius + 42),
+          y: center.y + Math.sin(fallbackAngle) * (radius + 42),
+          size
+        };
+      }
+
+      placedBubbles.push(placedBubble);
       bubbles.push({
         id: `${participant.id}-${interest.id}`,
         interest,
         participantId: participant.id,
         participantName: participant.name,
         participantColor: participant.color,
-        worldX: center.x + Math.cos(angle) * radius,
-        worldY: center.y + Math.sin(angle) * radius,
-        size: Math.max(MIN_BUBBLE_SIZE, MAX_BUBBLE_SIZE - idx * 8),
+        worldX: placedBubble.x,
+        worldY: placedBubble.y,
+        size: placedBubble.size,
         isMine: participant.id === 'me'
       });
     });
@@ -136,13 +182,22 @@ export default function BubbleFieldScreen({
   const fieldBubbles = useMemo(() => {
     return buildWorldLayout(participants);
   }, [myInterests]);
-  console.log('BUBBLE COUNT:', fieldBubbles.length);
 
   const getInitialCamera = useCallback((width: number, height: number) => {
-    // Camera is world coordinates of the center of the viewport
-    // Center on world origin (0,0)
-    return { x: 0, y: 0 };
-  }, []);
+    if (fieldBubbles.length === 0) {
+      return { x: 0, y: 0 };
+    }
+
+    const minX = Math.min(...fieldBubbles.map((bubble) => bubble.worldX - bubble.size / 2));
+    const maxX = Math.max(...fieldBubbles.map((bubble) => bubble.worldX + bubble.size / 2));
+    const minY = Math.min(...fieldBubbles.map((bubble) => bubble.worldY - bubble.size / 2));
+    const maxY = Math.max(...fieldBubbles.map((bubble) => bubble.worldY + bubble.size / 2));
+
+    return {
+      x: (minX + maxX) / 2,
+      y: (minY + maxY) / 2
+    };
+  }, [fieldBubbles]);
 
   useLayoutEffect(() => {
     const updateViewport = () => {
@@ -267,14 +322,12 @@ export default function BubbleFieldScreen({
         style={{
           marginTop: HEADER_HEIGHT,
           height: `calc(100vh - ${HEADER_HEIGHT}px)`,
-          background: 'yellow',
+          // background: 'yellow',
           position: 'relative'
         }}
       >
         <div
-          className="relative h-full w-full"
-          style={{ outline: '2px solid blue', background: 'rgba(0,0,255,0.05)' }}
-        >
+          className="relative h-full w-full overflow-hidden">
           <div
             ref={scrollContainerRef}
             className="absolute inset-0 z-10 select-none focus:outline-none"
@@ -287,7 +340,7 @@ export default function BubbleFieldScreen({
               height: '100%',
               maxWidth: '100%',
               maxHeight: '100%',
-              // overflow: 'hidden',
+              overflow: 'hidden',
               touchAction: 'none',
               cursor: isDragging ? 'grabbing' : 'grab',
               outline: 'none',
@@ -296,7 +349,6 @@ export default function BubbleFieldScreen({
               WebkitUserSelect: 'none',
               border: 'none',
               boxShadow: 'none',
-              background: 'rgba(255,0,0,0.03)'
             }}
           >
             <div
@@ -313,7 +365,8 @@ export default function BubbleFieldScreen({
                   height: '80px',
                   background: 'red',
                   borderRadius: '50%',
-                  zIndex: 9999
+                  zIndex: 9999,
+                  pointerEvents: 'none'
                 }}
               />
               {fieldBubbles.map((bubble, index) => {
@@ -333,8 +386,8 @@ export default function BubbleFieldScreen({
                     className={`${bubble.isMine ? 'cursor-default' : 'cursor-pointer'} ${isSelected ? 'ring-4 ring-white/90' : ''} select-none focus:outline-none focus:ring-0`}
                     style={{
                       position: 'absolute',
-                      left: `${bubble.worldX - camera.x + (viewportSize.width || window.innerWidth) / 2}px`,
-                      top: `${bubble.worldY - camera.y + (viewportSize.height || (window.innerHeight - HEADER_HEIGHT)) / 2}px`,
+                      left: `${bubble.worldX - camera.x + (viewportSize.width || window.innerWidth) / 2 - bubble.size / 2}px`,
+                      top: `${bubble.worldY - camera.y + (viewportSize.height || (window.innerHeight - HEADER_HEIGHT)) / 2 - bubble.size / 2}px`,
                       width: `${bubble.size}px`,
                       height: `${bubble.size}px`,
                       display: 'flex',
@@ -347,15 +400,17 @@ export default function BubbleFieldScreen({
                       outline: 'none',
                       transform: isSelected ? 'scale(1.03)' : 'scale(1)',
                       touchAction: 'none',
-                      WebkitTapHighlightColor: 'transparent'
+                      WebkitTapHighlightColor: 'transparent',
+                      pointerEvents: 'auto'
                     }}
                   >
                     <div
                       className={`absolute inset-0 bg-gradient-to-br ${bubble.participantColor} rounded-full shadow-md`}
+                      style={{ pointerEvents: 'none' }}
                     />
-                    <div className="absolute inset-[7%] rounded-full bg-white/10" />
-                    <div className="absolute top-[16%] right-[18%] w-8 h-8 rounded-full bg-white/20 blur-sm" />
-                    <div className="relative z-10 px-3 flex flex-col items-center justify-center text-center">
+                    <div className="absolute inset-[7%] rounded-full bg-white/10" style={{ pointerEvents: 'none' }} />
+                    <div className="absolute top-[16%] right-[18%] w-8 h-8 rounded-full bg-white/20 blur-sm" style={{ pointerEvents: 'none' }} />
+                    <div className="relative z-10 px-3 flex flex-col items-center justify-center text-center" style={{ pointerEvents: 'none' }}>
                       <span
                         style={{
                           fontSize: '14px',
