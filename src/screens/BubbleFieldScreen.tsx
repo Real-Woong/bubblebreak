@@ -2,6 +2,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Users, Sparkles, CheckCircle, Lock } from 'lucide-react';
 import type { Interest, Participant } from '../types/bubble';
 
+// ============================================================
+// 타입 정의
+// ============================================================
 type FieldBubble = {
   id: string;
   interest: Interest;
@@ -14,6 +17,9 @@ type FieldBubble = {
   isMine: boolean;
 };
 
+// ============================================================
+// 레이아웃 / 버블 배치 상수
+// ============================================================
 const HEADER_HEIGHT = 72;
 const CLUSTER_SPREAD_X = 165;
 const CLUSTER_SPREAD_Y = 110;
@@ -21,7 +27,9 @@ const MIN_BUBBLE_SIZE = 104;
 const MAX_BUBBLE_SIZE = 156;
 const MIN_BUBBLE_GAP = 24;
 
-
+// ============================================================
+// 레이아웃 헬퍼 함수
+// ============================================================
 function seededRandom(seed: number) {
   const x = Math.sin(seed) * 10000;
   return x - Math.floor(x);
@@ -108,6 +116,60 @@ function buildWorldLayout(participants: Participant[]) {
   return bubbles;
 }
 
+// ============================================================
+// 시각 스타일 헬퍼 함수
+// ============================================================
+function getBubbleMotionValues(bubble: FieldBubble, index: number) {
+  const floatDuration = 5.8 + seededRandom(index * 37 + bubble.participantId.length * 19) * 2.4;
+  const driftX = Math.round(6 + seededRandom(index * 71 + bubble.size) * 8);
+  const driftY = Math.round(8 + seededRandom(index * 89 + bubble.size) * 10);
+  const delay = -(seededRandom(index * 29 + bubble.interest.id.length * 17) * 4.5);
+  const wobbleDuration = 3.8 + seededRandom(index * 41 + bubble.participantName.length * 11) * 1.6;
+  const wobbleRotate = (seededRandom(index * 61 + bubble.size * 3) * 4 + 2).toFixed(2);
+  const wobbleScale = (1.018 + seededRandom(index * 73 + bubble.size * 5) * 0.02).toFixed(3);
+
+  return {
+    floatDuration,
+    driftX,
+    driftY,
+    delay,
+    wobbleDuration,
+    wobbleRotate,
+    wobbleScale
+  };
+}
+
+function getBubbleShadow(isSelected: boolean) {
+  return isSelected
+    ? '0 20px 40px rgba(168, 85, 247, 0.28), 0 8px 18px rgba(236, 72, 153, 0.18)'
+    : '0 14px 30px rgba(15, 23, 42, 0.14), 0 6px 14px rgba(168, 85, 247, 0.10)';
+}
+
+function getBubbleSurfaceStyle(isSelected: boolean) {
+  return {
+    boxShadow: isSelected
+      ? 'inset -10px -16px 24px rgba(255,255,255,0.10), inset 12px 16px 28px rgba(255,255,255,0.22)'
+      : 'inset -10px -16px 24px rgba(255,255,255,0.08), inset 12px 16px 28px rgba(255,255,255,0.16)'
+  };
+}
+
+function getBubbleHighlightStyle() {
+  return {
+    background:
+      'radial-gradient(circle at 30% 25%, rgba(255,255,255,0.38), rgba(255,255,255,0.08) 42%, rgba(255,255,255,0.02) 66%, transparent 74%)'
+  };
+}
+
+function getBubbleDepthOverlayStyle() {
+  return {
+    background:
+      'linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.02) 40%, rgba(15,23,42,0.10) 100%)'
+  };
+}
+
+// ============================================================
+// 화면 컴포넌트
+// ============================================================
 export default function BubbleFieldScreen({
   myInterests,
   onShowCommonGround,
@@ -119,6 +181,9 @@ export default function BubbleFieldScreen({
   selectedBubble: Interest | null;
   setSelectedBubble: (bubble: Interest | null) => void;
 }) {
+  // --------------------------------------------
+  // UI 상태
+  // --------------------------------------------
   const [showNotification, setShowNotification] = useState(false);
   const [showPopConfirm, setShowPopConfirm] = useState(false);
   const [selectedParticipant, setSelectedParticipant] = useState<Participant | null>(null);
@@ -126,6 +191,9 @@ export default function BubbleFieldScreen({
   const [camera, setCamera] = useState({ x: 0, y: 0 });
   const [viewportSize, setViewportSize] = useState({ width: window.innerWidth, height: window.innerHeight - HEADER_HEIGHT });
 
+  // --------------------------------------------
+  // 제스처 / 드래그 ref
+  // --------------------------------------------
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
   const dragMovedRef = useRef(false);
@@ -135,7 +203,9 @@ export default function BubbleFieldScreen({
   const panStartYRef = useRef(0);
   const hasInitializedPanRef = useRef(false);
 
-
+  // --------------------------------------------
+  // 제스처 헬퍼 함수
+  // --------------------------------------------
   const resetDragState = () => {
     window.setTimeout(() => {
       dragMovedRef.current = false;
@@ -144,6 +214,9 @@ export default function BubbleFieldScreen({
     }, 0);
   };
 
+  // --------------------------------------------
+  // 목업 / fallback 데이터
+  // --------------------------------------------
   const myFallbackInterests: Interest[] = [
     { id: 'm1', text: '영화', level: 'deep1' },
     { id: 'm2', text: '브런치', level: 'deep2' }
@@ -179,6 +252,9 @@ export default function BubbleFieldScreen({
     }
   ];
 
+  // --------------------------------------------
+  // 파생 레이아웃 데이터
+  // --------------------------------------------
   const fieldBubbles = useMemo(() => {
     return buildWorldLayout(participants);
   }, [myInterests]);
@@ -199,6 +275,9 @@ export default function BubbleFieldScreen({
     };
   }, [fieldBubbles]);
 
+  // --------------------------------------------
+  // 뷰포트 / 초기 카메라 설정
+  // --------------------------------------------
   useLayoutEffect(() => {
     const updateViewport = () => {
       setViewportSize({ width: window.innerWidth, height: window.innerHeight - HEADER_HEIGHT });
@@ -219,6 +298,9 @@ export default function BubbleFieldScreen({
     hasInitializedPanRef.current = true;
   }, [getInitialCamera, viewportSize]);
 
+  // --------------------------------------------
+  // 포인터 / 드래그 핸들러
+  // --------------------------------------------
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     const container = scrollContainerRef.current;
     if (!container) return;
@@ -270,6 +352,9 @@ export default function BubbleFieldScreen({
     resetDragState();
   };
 
+  // --------------------------------------------
+  // 버블 상호작용
+  // --------------------------------------------
   const handleBubbleTap = (bubble: FieldBubble) => {
     if (dragMovedRef.current) return;
     if (bubble.isMine) return;
@@ -290,6 +375,9 @@ export default function BubbleFieldScreen({
     }, 3000);
   };
 
+  // --------------------------------------------
+  // 렌더링
+  // --------------------------------------------
   return (
     <div
       className="h-screen w-screen overflow-hidden fixed inset-0 bg-gradient-to-b from-purple-50/30 to-white select-none"
@@ -297,6 +385,37 @@ export default function BubbleFieldScreen({
         overscrollBehavior: 'none'
       }}
     >
+    <style>{`
+    @keyframes bubbleFloat {
+      0% {
+        transform: translate3d(0px, 0px, 0) rotate(0deg) scale(1, 1);
+      }
+      20% {
+        transform: translate3d(var(--float-x), calc(var(--float-y) * -0.35), 0)
+          rotate(calc(var(--wobble-rotate) * -1deg))
+          scale(calc(var(--wobble-scale) * 0.992), calc(2 - var(--wobble-scale)));
+      }
+      40% {
+        transform: translate3d(calc(var(--float-x) * 0.35), calc(var(--float-y) * -0.9), 0)
+          rotate(calc(var(--wobble-rotate) * 0.6deg))
+          scale(var(--wobble-scale), calc(2 - var(--wobble-scale)));
+      }
+      60% {
+        transform: translate3d(calc(var(--float-x) * -0.55), calc(var(--float-y) * 0.65), 0)
+          rotate(calc(var(--wobble-rotate) * -0.45deg))
+          scale(calc(var(--wobble-scale) * 0.994), calc(2 - (var(--wobble-scale) * 0.994)));
+      }
+      80% {
+        transform: translate3d(calc(var(--float-x) * -1), calc(var(--float-y) * 0.15), 0)
+          rotate(calc(var(--wobble-rotate) * 0.85deg))
+          scale(calc(var(--wobble-scale) * 1.002), calc(2 - (var(--wobble-scale) * 1.002)));
+      }
+      100% {
+        transform: translate3d(0px, 0px, 0) rotate(0deg) scale(1, 1);
+      }
+    }
+    `}</style>
+      {/* 상단 바 */}
       <div
         className="fixed top-0 left-0 right-0 z-40 bg-white/92 backdrop-blur-md border-b border-purple-100"
         style={{
@@ -318,6 +437,7 @@ export default function BubbleFieldScreen({
         </div>
       </div>
 
+      {/* 버블 필드 / 카메라 뷰포트 */}
       <div
         style={{
           marginTop: HEADER_HEIGHT,
@@ -355,6 +475,7 @@ export default function BubbleFieldScreen({
               className="relative"
               style={{ position: 'relative', width: '100%', height: '100%' }}
             >
+              {/* 디버그 중심 앵커 */}
               <div
                 style={{
                   position: 'absolute',
@@ -369,8 +490,10 @@ export default function BubbleFieldScreen({
                   pointerEvents: 'none'
                 }}
               />
+              {/* 버블 노드 */}
               {fieldBubbles.map((bubble, index) => {
                 const isSelected = selectedBubble?.id === bubble.interest.id;
+                const motion = getBubbleMotionValues(bubble, index);
                 return (
                   <div
                     key={`${bubble.participantId}-${bubble.interest.id}-${index}`}
@@ -398,18 +521,48 @@ export default function BubbleFieldScreen({
                       userSelect: 'none',
                       WebkitUserSelect: 'none',
                       outline: 'none',
-                      transform: isSelected ? 'scale(1.03)' : 'scale(1)',
                       touchAction: 'none',
                       WebkitTapHighlightColor: 'transparent',
-                      pointerEvents: 'auto'
+                      pointerEvents: 'auto',
+                      willChange: 'transform',
+                      ['--float-x' as string]: `${motion.driftX}px`,
+                      ['--float-y' as string]: `${motion.driftY}px`,
+                      ['--wobble-rotate' as string]: motion.wobbleRotate,
+                      ['--wobble-scale' as string]: motion.wobbleScale,
+                      animation: `bubbleFloat ${motion.wobbleDuration}s ease-in-out ${motion.delay}s infinite`,
                     }}
                   >
                     <div
-                      className={`absolute inset-0 bg-gradient-to-br ${bubble.participantColor} rounded-full shadow-md`}
-                      style={{ pointerEvents: 'none' }}
+                      className={`absolute inset-0 bg-gradient-to-br ${bubble.participantColor} rounded-full`}
+                      style={{
+                        pointerEvents: 'none',
+                        ...getBubbleSurfaceStyle(isSelected)
+                      }}
                     />
-                    <div className="absolute inset-[7%] rounded-full bg-white/10" style={{ pointerEvents: 'none' }} />
-                    <div className="absolute top-[16%] right-[18%] w-8 h-8 rounded-full bg-white/20 blur-sm" style={{ pointerEvents: 'none' }} />
+                    <div
+                      className="absolute inset-[7%] rounded-full"
+                      style={{
+                        pointerEvents: 'none',
+                        ...getBubbleHighlightStyle()
+                      }}
+                    />
+                    <div
+                      className="absolute top-[14%] left-[20%] rounded-full blur-sm"
+                      style={{
+                        pointerEvents: 'none',
+                        width: `${Math.max(26, bubble.size * 0.18)}px`,
+                        height: `${Math.max(18, bubble.size * 0.12)}px`,
+                        background: 'rgba(255,255,255,0.34)',
+                        transform: 'rotate(-18deg)'
+                      }}
+                    />
+                    <div
+                      className="absolute inset-0 rounded-full"
+                      style={{
+                        pointerEvents: 'none',
+                        ...getBubbleDepthOverlayStyle()
+                      }}
+                    />
                     <div className="relative z-10 px-3 flex flex-col items-center justify-center text-center" style={{ pointerEvents: 'none' }}>
                       <span
                         style={{
@@ -435,6 +588,7 @@ export default function BubbleFieldScreen({
         </div>
       </div>
 
+      {/* 플로팅 액션 버튼 */}
       <button
         onClick={onShowCommonGround}
         className="fixed bottom-6 right-5 w-14 h-14 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full shadow-xl shadow-purple-300/50 flex items-center justify-center active:scale-95 transition-transform z-50"
@@ -443,6 +597,7 @@ export default function BubbleFieldScreen({
         <Sparkles className="w-6 h-6 text-white" />
       </button>
 
+      {/* 알림 토스트 */}
       {showNotification && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-top duration-300">
           <div className="bg-purple-600 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-2">
@@ -456,6 +611,7 @@ export default function BubbleFieldScreen({
         </div>
       )}
 
+      {/* 버블 액션 바텀시트 */}
       {showPopConfirm && selectedBubble && (
         <div
           className="fixed inset-0 bg-black/30 z-50 flex items-end"
