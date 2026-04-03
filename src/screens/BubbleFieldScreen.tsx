@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Users, Sparkles, CheckCircle, Lock } from 'lucide-react';
 import type { Interest, Participant } from '../types/bubble';
+import BubbleField from '../components/BubbleField';
 
 // ============================================================
 // 타입 정의
@@ -17,15 +18,91 @@ type FieldBubble = {
   isMine: boolean;
 };
 
+const USER_MAIN_GRADIENTS = {
+  user1: {
+    deep1: 'from-pink-400 to-pink-500',
+    deep2: 'from-fuchsia-300 to-pink-400',
+    deep3: 'from-pink-500 to-rose-500'
+  },
+  user2: {
+    deep1: 'from-violet-400 to-purple-500',
+    deep2: 'from-purple-300 to-violet-400',
+    deep3: 'from-violet-500 to-fuchsia-500'
+  },
+  user3: {
+    deep1: 'from-sky-400 to-cyan-500',
+    deep2: 'from-cyan-300 to-sky-400',
+    deep3: 'from-sky-500 to-blue-500'
+  },
+  user4: {
+    deep1: 'from-lime-400 to-green-500',
+    deep2: 'from-green-300 to-lime-400',
+    deep3: 'from-lime-500 to-emerald-500'
+  },
+  user5: {
+    deep1: 'from-yellow-300 to-amber-400',
+    deep2: 'from-amber-200 to-yellow-300',
+    deep3: 'from-yellow-400 to-orange-400'
+  },
+  user6: {
+    deep1: 'from-emerald-300 to-teal-400',
+    deep2: 'from-teal-200 to-emerald-300',
+    deep3: 'from-teal-400 to-cyan-400'
+  }
+} as const;
+
+function getUserSlot(participantId: string) {
+  if (participantId === 'me' || participantId === 'user-1' || participantId === 'user1') {
+    return 'user1';
+  }
+
+  const numericMatch = participantId.match(/\d+/);
+  const numericId = numericMatch ? Number(numericMatch[0]) : 1;
+
+  const normalized = Math.min(Math.max(numericId, 1), 6);
+  return `user${normalized}` as keyof typeof USER_MAIN_GRADIENTS;
+}
+
+function getBubbleGradient(participantId: string, level: Interest['level']) {
+  const userSlot = getUserSlot(participantId);
+  return USER_MAIN_GRADIENTS[userSlot][level];
+}
+
+function getBubbleShadowByParticipant(participantId: string) {
+  const userSlot = getUserSlot(participantId);
+
+  switch (userSlot) {
+    case 'user1':
+      return '0 14px 30px rgba(244, 114, 182, 0.22), 0 6px 14px rgba(244, 114, 182, 0.14)';
+    case 'user2':
+      return '0 14px 30px rgba(168, 85, 247, 0.22), 0 6px 14px rgba(168, 85, 247, 0.14)';
+    case 'user3':
+      return '0 14px 30px rgba(56, 189, 248, 0.22), 0 6px 14px rgba(56, 189, 248, 0.14)';
+    case 'user4':
+      return '0 14px 30px rgba(163, 230, 53, 0.22), 0 6px 14px rgba(163, 230, 53, 0.14)';
+    case 'user5':
+      return '0 14px 30px rgba(250, 204, 21, 0.22), 0 6px 14px rgba(250, 204, 21, 0.14)';
+    case 'user6':
+      return '0 14px 30px rgba(45, 212, 191, 0.22), 0 6px 14px rgba(45, 212, 191, 0.14)';
+    default:
+      return '0 14px 30px rgba(168, 85, 247, 0.14), 0 6px 14px rgba(168, 85, 247, 0.10)';
+  }
+}
+
 // ============================================================
 // 레이아웃 / 버블 배치 상수
 // ============================================================
 const HEADER_HEIGHT = 72;
-const CLUSTER_SPREAD_X = 165;
-const CLUSTER_SPREAD_Y = 110;
+const CLUSTER_SPREAD_X = 260;
+const CLUSTER_SPREAD_Y = 190;
 const MIN_BUBBLE_SIZE = 104;
 const MAX_BUBBLE_SIZE = 156;
-const MIN_BUBBLE_GAP = 24;
+const MIN_BUBBLE_GAP = 28;
+const LEVEL_RADIUS: Record<Interest['level'], number> = {
+  deep1: 120,
+  deep2: 220,
+  deep3: 320
+};
 
 // ============================================================
 // 레이아웃 헬퍼 함수
@@ -41,75 +118,106 @@ function bubblesOverlap(
   b: { x: number; y: number; size: number }
 ) {
   const distance = Math.hypot(a.x - b.x, a.y - b.y);
-
   return distance < a.size / 2 + b.size / 2 + MIN_BUBBLE_GAP;
 }
 
-function buildWorldLayout(participants: Participant[]) {
-  const clusterCenters = [
-    { x: 0, y: -CLUSTER_SPREAD_Y },
-    { x: -CLUSTER_SPREAD_X, y: CLUSTER_SPREAD_Y },
-    { x: CLUSTER_SPREAD_X, y: CLUSTER_SPREAD_Y }
-  ];
+function findNonOverlappingPosition(
+  center: { x: number; y: number },
+  size: number,
+  preferredRadius: number,
+  placedBubbles: Array<{ x: number; y: number; size: number }>,
+  seedBase: number
+) {
+  for (let ring = 0; ring < 16; ring += 1) {
+    const radius = preferredRadius + ring * 34;
+    const steps = 18 + ring * 6;
 
+    for (let step = 0; step < steps; step += 1) {
+      const randomOffset = seededRandom(seedBase + ring * 101 + step * 17) * 0.18;
+      const angle = ((step / steps) * Math.PI * 2) + randomOffset;
+      const candidate = {
+        x: center.x + Math.cos(angle) * radius,
+        y: center.y + Math.sin(angle) * radius,
+        size
+      };
+
+      if (placedBubbles.every((existingBubble) => !bubblesOverlap(existingBubble, candidate))) {
+        return candidate;
+      }
+    }
+  }
+
+  return null;
+}
+
+function buildWorldLayout(participants: Participant[], currentUserId: string) {
+  const participantCount = Math.max(participants.length, 1);
   const clusters: Record<string, { x: number; y: number }> = {};
 
   participants.forEach((participant, index) => {
-    const fallbackAngle = (index / participants.length) * Math.PI * 2;
-    clusters[participant.id] =
-      clusterCenters[index] ?? {
-        x: Math.cos(fallbackAngle) * 190,
-        y: Math.sin(fallbackAngle) * 190
-      };
+    const angle = (index / participantCount) * Math.PI * 2 - Math.PI / 2;
+    const ellipseRadiusX = participantCount <= 2 ? 180 : CLUSTER_SPREAD_X;
+    const ellipseRadiusY = participantCount <= 2 ? 135 : CLUSTER_SPREAD_Y;
+
+    clusters[participant.id] = {
+      x: Math.cos(angle) * ellipseRadiusX,
+      y: Math.sin(angle) * ellipseRadiusY
+    };
   });
 
   const bubbles: FieldBubble[] = [];
   const placedBubbles: Array<{ x: number; y: number; size: number }> = [];
 
-  participants.forEach((participant) => {
+  participants.forEach((participant, participantIndex) => {
     const center = clusters[participant.id];
 
     participant.interests.forEach((interest, idx) => {
       const size = Math.max(MIN_BUBBLE_SIZE, MAX_BUBBLE_SIZE - idx * 8);
-      const radius = interest.level === 'deep1' ? 125 : interest.level === 'deep2' ? 205 : 285;
-      let placedBubble: { x: number; y: number; size: number } | null = null;
+      const preferredRadius = LEVEL_RADIUS[interest.level];
+      const seedBase =
+        participantIndex * 1000 +
+        idx * 100 +
+        participant.name.length * 17 +
+        participant.id.length * 29;
 
-      for (let attempt = 0; attempt < 80; attempt += 1) {
-        const angle = seededRandom((idx + 1) * 97 + attempt * 17 + participant.name.length * 23) * Math.PI * 2;
-        const radiusJitter = seededRandom((idx + 1) * 151 + attempt * 29 + participant.id.length * 31) * 28 - 14;
-        const candidate = {
-          x: center.x + Math.cos(angle) * (radius + radiusJitter),
-          y: center.y + Math.sin(angle) * (radius + radiusJitter),
-          size
-        };
+      let placedBubble = findNonOverlappingPosition(
+        center,
+        size,
+        preferredRadius,
+        placedBubbles,
+        seedBase
+      );
 
-        if (placedBubbles.every((existingBubble) => !bubblesOverlap(existingBubble, candidate))) {
-          placedBubble = candidate;
-          break;
-        }
+      if (!placedBubble) {
+        placedBubble = findNonOverlappingPosition(
+          center,
+          size,
+          preferredRadius + 120,
+          placedBubbles,
+          seedBase + 999
+        );
       }
 
       if (!placedBubble) {
-        const fallbackAngle = (idx / Math.max(participant.interests.length, 1)) * Math.PI * 2;
         placedBubble = {
-          x: center.x + Math.cos(fallbackAngle) * (radius + 42),
-          y: center.y + Math.sin(fallbackAngle) * (radius + 42),
+          x: center.x + participantIndex * 120 + idx * 52,
+          y: center.y + participantIndex * 80 + idx * 64,
           size
         };
       }
 
       placedBubbles.push(placedBubble);
-      bubbles.push({
-        id: `${participant.id}-${interest.id}`,
-        interest,
-        participantId: participant.id,
-        participantName: participant.name,
-        participantColor: participant.color,
-        worldX: placedBubble.x,
-        worldY: placedBubble.y,
-        size: placedBubble.size,
-        isMine: participant.id === 'me'
-      });
+        bubbles.push({
+          id: `${participant.id}-${interest.id}`,
+          interest,
+          participantId: participant.id,
+          participantName: participant.name,
+          participantColor: participant.color,
+          worldX: placedBubble.x,
+          worldY: placedBubble.y,
+          size: placedBubble.size,
+          isMine: participant.id === currentUserId
+        });
     });
   });
 
@@ -120,50 +228,22 @@ function buildWorldLayout(participants: Participant[]) {
 // 시각 스타일 헬퍼 함수
 // ============================================================
 function getBubbleMotionValues(bubble: FieldBubble, index: number) {
-  const floatDuration = 5.8 + seededRandom(index * 37 + bubble.participantId.length * 19) * 2.4;
-  const driftX = Math.round(6 + seededRandom(index * 71 + bubble.size) * 8);
-  const driftY = Math.round(8 + seededRandom(index * 89 + bubble.size) * 10);
-  const delay = -(seededRandom(index * 29 + bubble.interest.id.length * 17) * 4.5);
-  const wobbleDuration = 3.8 + seededRandom(index * 41 + bubble.participantName.length * 11) * 1.6;
-  const wobbleRotate = (seededRandom(index * 61 + bubble.size * 3) * 4 + 2).toFixed(2);
-  const wobbleScale = (1.018 + seededRandom(index * 73 + bubble.size * 5) * 0.02).toFixed(3);
+  const floatDuration = 6.8 + seededRandom(index * 37 + bubble.participantId.length * 19) * 2.6;
+  const swayDuration = 5.4 + seededRandom(index * 41 + bubble.participantName.length * 11) * 1.8;
+  const shimmerDuration = 6.2 + seededRandom(index * 83 + bubble.size * 7) * 2.2;
+  const floatX = Math.round(8 + seededRandom(index * 71 + bubble.size) * 10);
+  const floatY = Math.round(12 + seededRandom(index * 89 + bubble.size) * 14);
+  const rotateDeg = (1.8 + seededRandom(index * 61 + bubble.size * 3) * 2.4).toFixed(2);
+  const delay = -(seededRandom(index * 29 + bubble.interest.id.length * 17) * 4.8);
 
   return {
     floatDuration,
-    driftX,
-    driftY,
-    delay,
-    wobbleDuration,
-    wobbleRotate,
-    wobbleScale
-  };
-}
-
-function getBubbleShadow(isSelected: boolean) {
-  return isSelected
-    ? '0 20px 40px rgba(168, 85, 247, 0.28), 0 8px 18px rgba(236, 72, 153, 0.18)'
-    : '0 14px 30px rgba(15, 23, 42, 0.14), 0 6px 14px rgba(168, 85, 247, 0.10)';
-}
-
-function getBubbleSurfaceStyle(isSelected: boolean) {
-  return {
-    boxShadow: isSelected
-      ? 'inset -10px -16px 24px rgba(255,255,255,0.10), inset 12px 16px 28px rgba(255,255,255,0.22)'
-      : 'inset -10px -16px 24px rgba(255,255,255,0.08), inset 12px 16px 28px rgba(255,255,255,0.16)'
-  };
-}
-
-function getBubbleHighlightStyle() {
-  return {
-    background:
-      'radial-gradient(circle at 30% 25%, rgba(255,255,255,0.38), rgba(255,255,255,0.08) 42%, rgba(255,255,255,0.02) 66%, transparent 74%)'
-  };
-}
-
-function getBubbleDepthOverlayStyle() {
-  return {
-    background:
-      'linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.02) 40%, rgba(15,23,42,0.10) 100%)'
+    swayDuration,
+    shimmerDuration,
+    floatX,
+    floatY,
+    rotateDeg,
+    delay
   };
 }
 
@@ -171,12 +251,14 @@ function getBubbleDepthOverlayStyle() {
 // 화면 컴포넌트
 // ============================================================
 export default function BubbleFieldScreen({
-  myInterests,
+  participants,
+  currentUserId,
   onShowCommonGround,
   selectedBubble,
   setSelectedBubble
 }: {
-  myInterests: Interest[];
+  participants: Participant[];
+  currentUserId: string;
   onShowCommonGround: () => void;
   selectedBubble: Interest | null;
   setSelectedBubble: (bubble: Interest | null) => void;
@@ -201,7 +283,7 @@ export default function BubbleFieldScreen({
   const dragStartYRef = useRef(0);
   const panStartXRef = useRef(0);
   const panStartYRef = useRef(0);
-  const hasInitializedPanRef = useRef(false);
+  const lastCameraLayoutKeyRef = useRef('');
 
   // --------------------------------------------
   // 제스처 헬퍼 함수
@@ -215,49 +297,17 @@ export default function BubbleFieldScreen({
   };
 
   // --------------------------------------------
-  // 목업 / fallback 데이터
+  // 외부에서 주입받는 데이터
+  // participants, currentUserId
   // --------------------------------------------
-  const myFallbackInterests: Interest[] = [
-    { id: 'm1', text: '영화', level: 'deep1' },
-    { id: 'm2', text: '브런치', level: 'deep2' }
-  ];
 
-  const participants: Participant[] = [
-    {
-      id: 'me',
-      name: '나',
-      color: 'from-purple-400 to-pink-400',
-      interests: myInterests.length > 0 ? myInterests : myFallbackInterests
-    },
-    {
-      id: 'user2',
-      name: 'user2',
-      color: 'from-blue-400 to-cyan-400',
-      interests: [
-        { id: 'u2-d1-1', text: '리그오브레전드', level: 'deep1' },
-        { id: 'u2-d1-2', text: '야구', level: 'deep1' },
-        { id: 'u2-d2-1', text: '두산', level: 'deep2' },
-        { id: 'u2-d2-2', text: '티원', level: 'deep2' }
-      ]
-    },
-    {
-      id: 'user3',
-      name: 'user3',
-      color: 'from-green-400 to-emerald-400',
-      interests: [
-        { id: 'u3-d1-1', text: '디저트먹기', level: 'deep1' },
-        { id: 'u3-d1-2', text: '맛집탐방', level: 'deep1' },
-        { id: 'u3-d2-1', text: '스티커 모으기', level: 'deep2' }
-      ]
-    }
-  ];
-
+  // participants / currentUserId 기반으로만 버블 레이아웃을 계산
   // --------------------------------------------
   // 파생 레이아웃 데이터
   // --------------------------------------------
   const fieldBubbles = useMemo(() => {
-    return buildWorldLayout(participants);
-  }, [myInterests]);
+    return buildWorldLayout(participants, currentUserId);
+  }, [participants, currentUserId]);
 
   const getInitialCamera = useCallback((width: number, height: number) => {
     if (fieldBubbles.length === 0) {
@@ -293,10 +343,23 @@ export default function BubbleFieldScreen({
 
   useEffect(() => {
     if (viewportSize.width === 0 || viewportSize.height === 0) return;
-    if (hasInitializedPanRef.current) return;
+    if (isDragging) return;
+
+    const layoutKey = [
+      viewportSize.width,
+      viewportSize.height,
+      ...fieldBubbles.map(
+        (bubble) => `${bubble.id}:${bubble.worldX}:${bubble.worldY}:${bubble.size}`
+      )
+    ].join('|');
+
+    if (lastCameraLayoutKeyRef.current === layoutKey) {
+      return;
+    }
+
+    lastCameraLayoutKeyRef.current = layoutKey;
     setCamera(getInitialCamera(viewportSize.width, viewportSize.height));
-    hasInitializedPanRef.current = true;
-  }, [getInitialCamera, viewportSize]);
+  }, [fieldBubbles, getInitialCamera, viewportSize, isDragging]);
 
   // --------------------------------------------
   // 포인터 / 드래그 핸들러
@@ -304,6 +367,11 @@ export default function BubbleFieldScreen({
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     const container = scrollContainerRef.current;
     if (!container) return;
+
+    const target = e.target as HTMLElement;
+    if (target.closest('[data-bubble-interactive="true"]')) {
+      return;
+    }
 
     e.preventDefault();
     activePointerIdRef.current = e.pointerId;
@@ -385,36 +453,73 @@ export default function BubbleFieldScreen({
         overscrollBehavior: 'none'
       }}
     >
-    <style>{`
-    @keyframes bubbleFloat {
-      0% {
-        transform: translate3d(0px, 0px, 0) rotate(0deg) scale(1, 1);
-      }
-      20% {
-        transform: translate3d(var(--float-x), calc(var(--float-y) * -0.35), 0)
-          rotate(calc(var(--wobble-rotate) * -1deg))
-          scale(calc(var(--wobble-scale) * 0.992), calc(2 - var(--wobble-scale)));
-      }
-      40% {
-        transform: translate3d(calc(var(--float-x) * 0.35), calc(var(--float-y) * -0.9), 0)
-          rotate(calc(var(--wobble-rotate) * 0.6deg))
-          scale(var(--wobble-scale), calc(2 - var(--wobble-scale)));
-      }
-      60% {
-        transform: translate3d(calc(var(--float-x) * -0.55), calc(var(--float-y) * 0.65), 0)
-          rotate(calc(var(--wobble-rotate) * -0.45deg))
-          scale(calc(var(--wobble-scale) * 0.994), calc(2 - (var(--wobble-scale) * 0.994)));
-      }
-      80% {
-        transform: translate3d(calc(var(--float-x) * -1), calc(var(--float-y) * 0.15), 0)
-          rotate(calc(var(--wobble-rotate) * 0.85deg))
-          scale(calc(var(--wobble-scale) * 1.002), calc(2 - (var(--wobble-scale) * 1.002)));
-      }
-      100% {
-        transform: translate3d(0px, 0px, 0) rotate(0deg) scale(1, 1);
-      }
-    }
-    `}</style>
+      <style>{`
+        @keyframes bubbleDrift {
+          0% {
+            transform: translate3d(0px, 0px, 0);
+          }
+          25% {
+            transform: translate3d(var(--float-x), calc(var(--float-y) * -0.55), 0);
+          }
+          50% {
+            transform: translate3d(calc(var(--float-x) * -0.35), calc(var(--float-y) * -1), 0);
+          }
+          75% {
+            transform: translate3d(calc(var(--float-x) * -1), calc(var(--float-y) * -0.2), 0);
+          }
+          100% {
+            transform: translate3d(0px, 0px, 0);
+          }
+        }
+
+        @keyframes bubbleSway {
+          0% {
+            transform: rotate(0deg) scale(1, 1);
+          }
+          25% {
+            transform: rotate(calc(var(--rotate-deg) * -1deg)) scale(1.016, 0.992);
+          }
+          50% {
+            transform: rotate(calc(var(--rotate-deg) * 0.6deg)) scale(1.026, 0.986);
+          }
+          75% {
+            transform: rotate(calc(var(--rotate-deg) * -0.5deg)) scale(1.012, 0.996);
+          }
+          100% {
+            transform: rotate(0deg) scale(1, 1);
+          }
+        }
+
+        @keyframes bubbleInnerDrift {
+          0% {
+            transform: translate3d(0px, 0px, 0) scale(1);
+            opacity: 0.86;
+          }
+          50% {
+            transform: translate3d(5px, -7px, 0) scale(1.05);
+            opacity: 1;
+          }
+          100% {
+            transform: translate3d(0px, 0px, 0) scale(1);
+            opacity: 0.86;
+          }
+        }
+
+        @keyframes bubbleGlossSweep {
+          0% {
+            transform: translate3d(0px, 0px, 0) rotate(-18deg);
+            opacity: 0.24;
+          }
+          50% {
+            transform: translate3d(7px, -9px, 0) rotate(-13deg);
+            opacity: 0.42;
+          }
+          100% {
+            transform: translate3d(0px, 0px, 0) rotate(-18deg);
+            opacity: 0.24;
+          }
+        }
+      `}</style>
       {/* 상단 바 */}
       <div
         className="fixed top-0 left-0 right-0 z-40 bg-white/92 backdrop-blur-md border-b border-purple-100"
@@ -446,8 +551,7 @@ export default function BubbleFieldScreen({
           position: 'relative'
         }}
       >
-        <div
-          className="relative h-full w-full overflow-hidden">
+        <div className="relative h-full w-full overflow-hidden">
           <div
             ref={scrollContainerRef}
             className="absolute inset-0 z-10 select-none focus:outline-none"
@@ -475,110 +579,77 @@ export default function BubbleFieldScreen({
               className="relative"
               style={{ position: 'relative', width: '100%', height: '100%' }}
             >
-              {/* 디버그 중심 앵커 */}
-              <div
-                style={{
-                  position: 'absolute',
-                  left: '50%',
-                  top: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  width: '80px',
-                  height: '80px',
-                  background: 'red',
-                  borderRadius: '50%',
-                  zIndex: 9999,
-                  pointerEvents: 'none'
-                }}
-              />
-              {/* 버블 노드 */}
+              {fieldBubbles.length === 0 && (
+                <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
+                  <div className="rounded-3xl bg-white/80 backdrop-blur-sm px-6 py-5 shadow-sm border border-purple-100">
+                    <p className="text-sm font-medium text-gray-700">아직 표시할 버블 데이터가 없어요</p>
+                    <p className="mt-1 text-xs text-gray-500">로비에서 참가자와 관심사를 먼저 준비해 주세요</p>
+                  </div>
+                </div>
+              )}
               {fieldBubbles.map((bubble, index) => {
                 const isSelected = selectedBubble?.id === bubble.interest.id;
                 const motion = getBubbleMotionValues(bubble, index);
+
                 return (
                   <div
-                    key={`${bubble.participantId}-${bubble.interest.id}-${index}`}
-                    onClick={() => handleBubbleTap(bubble)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        handleBubbleTap(bubble);
-                      }
-                    }}
-                    className={`${bubble.isMine ? 'cursor-default' : 'cursor-pointer'} ${isSelected ? 'ring-4 ring-white/90' : ''} select-none focus:outline-none focus:ring-0`}
+                    key={bubble.id}
+                    className="absolute"
                     style={{
-                      position: 'absolute',
-                      left: `${bubble.worldX - camera.x + (viewportSize.width || window.innerWidth) / 2 - bubble.size / 2}px`,
-                      top: `${bubble.worldY - camera.y + (viewportSize.height || (window.innerHeight - HEADER_HEIGHT)) / 2 - bubble.size / 2}px`,
+                      left: `${bubble.worldX - camera.x + viewportSize.width / 2 - bubble.size / 2}px`,
+                      top: `${bubble.worldY - camera.y + viewportSize.height / 2 - bubble.size / 2}px`,
                       width: `${bubble.size}px`,
                       height: `${bubble.size}px`,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      borderRadius: '9999px',
-                      zIndex: isSelected ? 20 : 10,
-                      userSelect: 'none',
-                      WebkitUserSelect: 'none',
-                      outline: 'none',
-                      touchAction: 'none',
-                      WebkitTapHighlightColor: 'transparent',
-                      pointerEvents: 'auto',
                       willChange: 'transform',
-                      ['--float-x' as string]: `${motion.driftX}px`,
-                      ['--float-y' as string]: `${motion.driftY}px`,
-                      ['--wobble-rotate' as string]: motion.wobbleRotate,
-                      ['--wobble-scale' as string]: motion.wobbleScale,
-                      animation: `bubbleFloat ${motion.wobbleDuration}s ease-in-out ${motion.delay}s infinite`,
+                      transform: 'translate3d(0,0,0)',
+                      animation: `bubbleDrift ${motion.floatDuration}s ease-in-out ${motion.delay}s infinite`,
+                      ['--float-x' as string]: `${motion.floatX}px`,
+                      ['--float-y' as string]: `${motion.floatY}px`,
+                      ['--rotate-deg' as string]: motion.rotateDeg
                     }}
                   >
                     <div
-                      className={`absolute inset-0 bg-gradient-to-br ${bubble.participantColor} rounded-full`}
-                      style={{
-                        pointerEvents: 'none',
-                        ...getBubbleSurfaceStyle(isSelected)
+                      data-bubble-interactive="true"
+                      onPointerUp={(e) => {
+                        e.stopPropagation();
+                        handleBubbleTap(bubble);
                       }}
-                    />
-                    <div
-                      className="absolute inset-[7%] rounded-full"
-                      style={{
-                        pointerEvents: 'none',
-                        ...getBubbleHighlightStyle()
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleBubbleTap(bubble);
+                        }
                       }}
-                    />
-                    <div
-                      className="absolute top-[14%] left-[20%] rounded-full blur-sm"
+                      className={`${bubble.isMine ? 'cursor-default' : 'cursor-pointer'} ${
+                        isSelected ? 'ring-4 ring-white/90 rounded-full' : ''
+                      } select-none focus:outline-none focus:ring-0`}
                       style={{
-                        pointerEvents: 'none',
-                        width: `${Math.max(26, bubble.size * 0.18)}px`,
-                        height: `${Math.max(18, bubble.size * 0.12)}px`,
-                        background: 'rgba(255,255,255,0.34)',
-                        transform: 'rotate(-18deg)'
+                        position: 'relative',
+                        width: '100%',
+                        height: '100%',
+                        borderRadius: '9999px',
+                        userSelect: 'none',
+                        WebkitUserSelect: 'none',
+                        outline: 'none',
+                        touchAction: 'none',
+                        WebkitTapHighlightColor: 'transparent',
+                        pointerEvents: 'auto',
+                        willChange: 'transform',
+                        animation: `bubbleSway ${motion.swayDuration}s ease-in-out ${motion.delay}s infinite`
                       }}
-                    />
-                    <div
-                      className="absolute inset-0 rounded-full"
-                      style={{
-                        pointerEvents: 'none',
-                        ...getBubbleDepthOverlayStyle()
-                      }}
-                    />
-                    <div className="relative z-10 px-3 flex flex-col items-center justify-center text-center" style={{ pointerEvents: 'none' }}>
-                      <span
-                        style={{
-                          fontSize: '14px',
-                          fontWeight: 700,
-                          lineHeight: 1.2,
-                          wordBreak: 'keep-all',
-                          maxWidth: '90px'
-                        }}
-                        className="text-white"
-                      >
-                        {bubble.interest.text}
-                      </span>
-                      <span className="mt-2 text-[10px] uppercase tracking-[0.18em] opacity-80 text-white">
-                        {bubble.isMine ? 'mine' : bubble.participantName}
-                      </span>
+                    >
+                      <BubbleField
+                        interest={bubble.interest}
+                        participantId={bubble.participantId}
+                        participantColor={bubble.participantColor}
+                        participantName={bubble.participantName}
+                        sizePx={bubble.size}
+                        isMine={bubble.isMine}
+                        isSelected={isSelected}
+                        onTap={() => handleBubbleTap(bubble)}
+                      />
                     </div>
                   </div>
                 );

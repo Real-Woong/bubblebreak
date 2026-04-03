@@ -1,41 +1,38 @@
 import { useState } from 'react';
 import { Copy, Check, Users, ChevronRight } from 'lucide-react';
-import type { Screen } from '../types/bubble';
+import type { Screen, RoomSlot } from '../types/bubble';
 
 export default function LobbyScreen({
   roomCode,
+  slots,
   onNavigate
 }: {
   roomCode: string;
+  slots: RoomSlot[];
   onNavigate: (screen: Screen) => void;
 }) {
   const [copied, setCopied] = useState(false);
 
-  const copyRoomCode = () => {
-    navigator.clipboard.writeText(roomCode);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const copyRoomCode = async () => {
+    try {
+      await navigator.clipboard.writeText(roomCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.error('room code copy failed', error);
+    }
   };
 
-  const participants = [
-    { id: '1', name: '나', status: 'ready' },
-    { id: '2', name: 'user2', status: 'ready' },
-    { id: '3', name: 'user3', status: 'waiting' },
-    { id: '4', name: '', status: 'empty' },
-    { id: '5', name: '', status: 'empty' },
-    { id: '6', name: '', status: 'empty' }
-  ] as const;
+  const participantCount = slots.filter((slot) => slot.type === 'participant').length;
 
   return (
     <div className="min-h-screen px-5 pt-8 pb-8">
       <div className="max-w-[375px] mx-auto">
-        {/* Header */}
         <div className="text-center mb-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">방 대기실</h2>
           <p className="text-sm text-gray-600">참여자들이 모이면 시작할 수 있어요</p>
         </div>
 
-        {/* Room Code Card */}
         <div className="bg-gradient-to-br from-purple-100 to-pink-100 rounded-3xl p-6 mb-6 border-2 border-white shadow-lg">
           <div className="text-center mb-4">
             <p className="text-sm text-purple-700 font-medium mb-2">방 코드</p>
@@ -45,65 +42,80 @@ export default function LobbyScreen({
                 onClick={copyRoomCode}
                 className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center active:scale-95 transition-transform"
               >
-                {copied ? <Check className="w-5 h-5 text-white" /> : <Copy className="w-5 h-5 text-white" />}
+                {copied ? (
+                  <Check className="w-5 h-5 text-white" />
+                ) : (
+                  <Copy className="w-5 h-5 text-white" />
+                )}
               </button>
             </div>
           </div>
           <p className="text-xs text-center text-purple-600">이 코드를 친구들에게 공유하세요</p>
         </div>
 
-        {/* Participants */}
         <div className="mb-8">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">
-            참여자 ({participants.filter((p) => p.status !== 'empty').length}/6)
-          </h3>
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">참여자 ({participantCount}/6)</h3>
 
           <div className="grid grid-cols-2 gap-3">
-            {participants.map((p) => (
-              <div
-                key={p.id}
-                className={`rounded-2xl p-4 border-2 ${
-                  p.status === 'ready'
-                    ? 'bg-gradient-to-br from-purple-50 to-pink-50 border-purple-200'
-                    : p.status === 'waiting'
-                    ? 'bg-white/70 border-gray-200'
-                    : 'bg-gray-50/50 border-gray-100 border-dashed'
-                }`}
-              >
-                <div className="flex items-center gap-3">
+            {slots.map((slot) => {
+              if (slot.type === 'empty') {
+                return (
                   <div
-                    className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold ${
-                      p.status === 'empty'
-                        ? 'bg-gray-200 text-gray-400'
-                        : p.status === 'ready'
-                        ? 'bg-gradient-to-br from-purple-400 to-pink-400 text-white'
-                        : 'bg-gray-300 text-gray-600'
-                    }`}
+                    key={slot.id}
+                    className="rounded-2xl p-4 border-2 bg-gray-50/50 border-gray-100 border-dashed"
                   >
-                    {p.status === 'empty' ? <Users className="w-5 h-5" /> : p.name.charAt(0).toUpperCase()}
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-medium truncate ${p.status === 'empty' ? 'text-gray-400' : 'text-gray-900'}`}>
-                      {p.status === 'empty' ? '빈 자리' : p.name}
-                    </p>
-
-                    {p.status === 'ready' && (
-                      <div className="flex items-center gap-1 mt-0.5">
-                        <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
-                        <span className="text-xs text-green-600">준비완료</span>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold bg-gray-200 text-gray-400">
+                        <Users className="w-5 h-5" />
                       </div>
-                    )}
 
-                    {p.status === 'waiting' && <span className="text-xs text-gray-500">대기중...</span>}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate text-gray-400">빈 자리</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              const { participant, status } = slot;
+
+              return (
+                <div
+                  key={slot.id}
+                  className={`rounded-2xl p-4 border-2 ${
+                    status === 'ready'
+                      ? 'bg-gradient-to-br from-purple-50 to-pink-50 border-purple-200'
+                      : 'bg-white/70 border-gray-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold text-white bg-gradient-to-br ${participant.color}`}
+                    >
+                      {participant.name.charAt(0).toUpperCase()}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate text-gray-900">{participant.name}</p>
+
+                      {status === 'ready' && (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
+                          <span className="text-xs text-green-600">준비완료</span>
+                        </div>
+                      )}
+
+                      {status === 'waiting' && (
+                        <span className="text-xs text-gray-500">대기중...</span>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
-        {/* CTAs */}
         <div className="space-y-3">
           <button
             onClick={() => onNavigate('field')}
@@ -121,9 +133,10 @@ export default function LobbyScreen({
           </button>
         </div>
 
-        {/* Helper */}
         <div className="mt-6 bg-purple-50/50 rounded-2xl p-4 border border-purple-100/50">
-          <p className="text-xs text-gray-600 text-center leading-relaxed">💡 최소 2명 이상일 때 버블을 터뜨릴 수 있어요</p>
+          <p className="text-xs text-gray-600 text-center leading-relaxed">
+            💡 최소 2명 이상일 때 버블을 터뜨릴 수 있어요
+          </p>
         </div>
       </div>
     </div>
