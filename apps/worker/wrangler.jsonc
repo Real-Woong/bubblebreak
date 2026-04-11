@@ -1,0 +1,12 @@
+{
+	"name": "bubblebreak-worker",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-04-03",
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "bubblebreak-db",
+			"database_id": "7eabc937-d30d-4ccb-9a1d-bc773dff6f07"
+		}
+	]
+}

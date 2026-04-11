@@ -644,7 +644,6 @@ export default function BubbleFieldScreen({
                         interest={bubble.interest}
                         participantId={bubble.participantId}
                         participantColor={bubble.participantColor}
-                        participantName={bubble.participantName}
                         sizePx={bubble.size}
                         isMine={bubble.isMine}
                         isSelected={isSelected}
@@ -674,8 +673,10 @@ export default function BubbleFieldScreen({
           <div className="bg-purple-600 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-2">
             <CheckCircle className="w-4 h-4" />
             <span className="text-sm font-medium">
-              {selectedParticipant
-                ? `${selectedParticipant.name}가 당신의 관심사를 확인했어요!`
+              {selectedParticipant && selectedBubble
+                ? selectedBubble.level === 'deep3'
+                  ? `${selectedParticipant.name}에게 확인 요청을 보냈어요!`
+                  : `${selectedParticipant.name}의 관심사를 확인했어요!`
                 : '관심사를 확인했어요!'}
             </span>
           </div>

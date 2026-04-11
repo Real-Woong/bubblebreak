@@ -102,6 +102,24 @@ function getBubbleDepthOverlayStyle() {
   };
 }
 
+function getAdaptiveFontSize(text: string, baseSize: number, sizePx: number) {
+  let fontSize = baseSize;
+
+  // 대략 한 줄에 들어갈 수 있는 글자 수 (경험적 값)
+  const getCharsPerLine = (fs: number) => Math.floor((sizePx * 0.82) / (fs * 0.56));
+
+  // 목표: 2줄 안에 들어가도록
+  while (fontSize > 9) {
+    const charsPerLine = getCharsPerLine(fontSize);
+    const requiredLines = Math.ceil(text.length / charsPerLine);
+
+    if (requiredLines <= 2) break;
+    fontSize -= 1;
+  }
+
+  return fontSize;
+}
+
 export default function BubbleField({
   interest,
   participantId,
@@ -119,7 +137,7 @@ export default function BubbleField({
   isSelected: boolean;
   onTap: () => void;
 }) {
-  const fontSize = Math.max(16, Math.round(sizePx * 0.14));
+  const baseFontSize = Math.max(16, Math.round(sizePx * 0.14));
   return (
     <div
       onClick={() => {
@@ -186,11 +204,12 @@ export default function BubbleField({
         ) : interest.level === 'deep2' ? (
           <span
             style={{
-              fontSize: `${fontSize}px`,
+              fontSize: `${getAdaptiveFontSize(interest.text, baseFontSize, sizePx)}px`,
               fontWeight: 700,
-              lineHeight: 1.18,
-              wordBreak: 'keep-all',
-              maxWidth: `${sizePx * 0.72}px`,
+              lineHeight: 1.14,
+              wordBreak: 'break-word',
+              overflowWrap: 'anywhere',
+              maxWidth: `${sizePx * 0.82}px`,
               textAlign: 'center',
               display: '-webkit-box',
               WebkitLineClamp: 2,
@@ -204,11 +223,12 @@ export default function BubbleField({
         ) : (
           <span
             style={{
-              fontSize: `${fontSize}px`,
+              fontSize: `${getAdaptiveFontSize(interest.text, baseFontSize, sizePx)}px`,
               fontWeight: 700,
-              lineHeight: 1.18,
-              wordBreak: 'keep-all',
-              maxWidth: `${sizePx * 0.72}px`,
+              lineHeight: 1.14,
+              wordBreak: 'break-word',
+              overflowWrap: 'anywhere',
+              maxWidth: `${sizePx * 0.82}px`,
               textAlign: 'center',
               display: '-webkit-box',
               WebkitLineClamp: 2,
