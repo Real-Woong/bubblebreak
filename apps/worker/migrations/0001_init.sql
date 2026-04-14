@@ -1,12 +1,12 @@
 -- users: 방 생성자/참가자 식별용
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   nickname TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
 
 -- rooms: 방 정보 저장
-CREATE TABLE rooms (
+CREATE TABLE IF NOT EXISTS rooms (
   id TEXT PRIMARY KEY,
   code TEXT NOT NULL UNIQUE,
   host_user_id TEXT NOT NULL,
@@ -16,7 +16,7 @@ CREATE TABLE rooms (
 );
 
 -- room_participants: 어떤 유저가 어떤 방에 들어왔는지 저장
-CREATE TABLE room_participants (
+CREATE TABLE IF NOT EXISTS room_participants (
   id TEXT PRIMARY KEY,
   room_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
@@ -26,3 +26,13 @@ CREATE TABLE room_participants (
   FOREIGN KEY (user_id) REFERENCES users(id),
   UNIQUE(room_id, user_id)
 );
+
+-- 조회 가능용 인덱스
+CREATE INDEX IF NOT EXISTS idx_rooms_code
+ON rooms(code);
+
+CREATE INDEX IF NOT EXISTS idx_room_participants_room_id
+ON room_participants(room_id);
+
+CREATE INDEX IF NOT EXISTS idx_room_participants_user_id
+ON room_participants(user_id);
