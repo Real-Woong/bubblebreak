@@ -4,12 +4,21 @@ type DbRunResult = {
   success: boolean;
 };
 
-// D1 statement 최소 타입 정의
-// bind()로 파라미터 넣고 run()으로 실행
+// D1 statement 최소 타입정의
+// joinRoom에서는 bind(), run(), first<T>() 모두 사용
 type DbStatement = {
+  // bind() = SQL문 ?자리에 넣기 (...value: unknown[] -> 여러 type 배열로 넣기)
   bind(...values: unknown[]): DbStatement;
   run(): Promise<DbRunResult>;
   first<T>(): Promise<T | null>;
+
+    //예시
+        //     env.DB.prepare(`
+        // SELECT * FROM rooms WHERE code = ?
+        // `)
+        // .bind(roomCode)
+        // .first();
+        // room code 값으로 방 찾아와줘
 };
 
 // DB 객체 타입 (env.DB)
@@ -22,6 +31,11 @@ type DbLike = {
 type Env = {
   DB: DbLike;
 };
+
+//env.DB
+//   .prepare("SQL문")
+//   .bind(값)
+//   .run();
 
 // DB에서 rooms 조회 결과 타입
 type RoomRow = {
