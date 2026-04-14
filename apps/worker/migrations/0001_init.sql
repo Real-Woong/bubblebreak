@@ -23,5 +23,6 @@ CREATE TABLE room_participants (
   joined_at TEXT NOT NULL,
   status TEXT NOT NULL,
   FOREIGN KEY (room_id) REFERENCES rooms(id),
-  FOREIGN KEY (user_id) REFERENCES users(id)
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  UNIQUE(room_id, user_id)
 );

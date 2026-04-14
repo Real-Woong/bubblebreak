@@ -2,10 +2,20 @@ import { healthRoute } from "./routes/health";
 import { healthDbRoute } from "./routes/healthDb";
 import { createRoomRoute } from "./routes/createRoom";
 
+// D1에서 INSERT/UPDATE 실행 시 사용하는 최소 결과 타입
+// createRoomRoute에서 run().success 확인에 필요
+type DbRunResult = {
+  success: boolean;
+};
+
 // D1에서 사용하는 최소 쿼리 결과 타입
-// 현재는 first()만 사용하므로 해당 메서드만 정의
 type DbStatement = {
+  // SELECT 1건 조회 시 사용
   first<T>(): Promise<T | null>;
+  // INSERT/UPDATE/DELETE에서 바인딩 값 주입 시 사용
+  bind(...values: unknown[]): DbStatement;
+  // 실제 쿼리 실행 시 사용
+  run(): Promise<DbRunResult>;
 };
 
 // D1 데이터베이스 객체의 최소 형태
@@ -35,6 +45,13 @@ export default {
     // 실제로 D1에 쿼리를 날려서 응답이 오는지 테스트
     if (request.method === "GET" && url.pathname === "/health/db") {
       return healthDbRoute(env);
+    }
+
+    // 방 생성 라우트
+    // 프론트에서 닉네임을 받아 users / rooms / room_participants에
+    // 순서대로 데이터를 저장하고, 최종적으로 roomCode를 반환
+    if (request.method === "POST" && url.pathname === "/rooms") {
+      return createRoomRoute(request, env);
     }
 
     // 정의되지 않은 경로는 모두 404 처리
