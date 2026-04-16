@@ -4,8 +4,31 @@ import type { Interest, Participant } from '../types/bubble';
 import BubbleField from '../components/BubbleField';
 
 // ============================================================
+// BubbleFieldScreen
+// Lobby 이후 진입하는 메인 인터랙션 화면
+//
+// 역할:
+// - 현재는 App.tsx 에서 주입받은 임시 participants 데이터를 기반으로 버블을 렌더링
+// - 이후에는 room_participants API 응답 데이터를 이 화면에서 사용하도록 전환 예정
+// - camera(가상 카메라)를 이동시키며 월드 탐색
+// - 다른 유저의 관심사를 터치하여 상호작용
+//
+// 핵심 구조:
+// 현재: App의 mock/임시 participants → interests → FieldBubble → 렌더링
+// 이후: API(room_participants) → parsing(interests_json) → FieldBubble → 렌더링
+// world 좌표 → camera 보정 → screen 좌표
+// ============================================================
+
+// ============================================================
 // 타입 정의
 // ============================================================
+
+// FieldBubble: 실제 화면에 렌더링되는 버블 단위
+// - interest: 원본 데이터
+// - participant 정보: 소유자
+// - worldX/Y: 월드 좌표
+// - size: 크기
+// - isMine: 내 버블 여부
 type FieldBubble = {
   id: string;
   interest: Interest;
@@ -18,6 +41,8 @@ type FieldBubble = {
   isMine: boolean;
 };
 
+// 사용자별 색상 시스템
+// 동일 유저는 항상 같은 색 계열 유지
 const USER_MAIN_GRADIENTS = {
   user1: {
     deep1: 'from-pink-400 to-pink-500',
@@ -51,6 +76,8 @@ const USER_MAIN_GRADIENTS = {
   }
 } as const;
 
+// participantId → user slot 매핑
+// 색상/스타일 통일을 위한 정규화 과정
 function getUserSlot(participantId: string) {
   if (participantId === 'me' || participantId === 'user-1' || participantId === 'user1') {
     return 'user1';
@@ -63,11 +90,13 @@ function getUserSlot(participantId: string) {
   return `user${normalized}` as keyof typeof USER_MAIN_GRADIENTS;
 }
 
+// interest level에 따른 그라데이션 선택
 function getBubbleGradient(participantId: string, level: Interest['level']) {
   const userSlot = getUserSlot(participantId);
   return USER_MAIN_GRADIENTS[userSlot][level];
 }
 
+// 사용자별 shadow 차별화 (시각적 구분 강화)
 function getBubbleShadowByParticipant(participantId: string) {
   const userSlot = getUserSlot(participantId);
 
@@ -89,8 +118,8 @@ function getBubbleShadowByParticipant(participantId: string) {
   }
 }
 
-// ============================================================
-// 레이아웃 / 버블 배치 상수
+// 레이아웃 관련 상수 정의
+// 버블 간 거리, 반경, 최소 간격 등
 // ============================================================
 const HEADER_HEIGHT = 72;
 const CLUSTER_SPREAD_X = 260;
@@ -107,12 +136,15 @@ const LEVEL_RADIUS: Record<Interest['level'], number> = {
 // ============================================================
 // 레이아웃 헬퍼 함수
 // ============================================================
+
+// seed 기반 랜덤 → 동일 데이터에서 항상 같은 배치 보장
 function seededRandom(seed: number) {
   const x = Math.sin(seed) * 10000;
   return x - Math.floor(x);
 }
 
 
+// 두 버블이 겹치는지 계산
 function bubblesOverlap(
   a: { x: number; y: number; size: number },
   b: { x: number; y: number; size: number }
@@ -121,6 +153,8 @@ function bubblesOverlap(
   return distance < a.size / 2 + b.size / 2 + MIN_BUBBLE_GAP;
 }
 
+// 겹치지 않는 위치 탐색 알고리즘
+// 반경을 점점 넓히며 빈 공간 찾기
 function findNonOverlappingPosition(
   center: { x: number; y: number },
   size: number,
@@ -150,10 +184,14 @@ function findNonOverlappingPosition(
   return null;
 }
 
+// 핵심 레이아웃 생성 함수
+// participants → bubble 좌표 계산
+// 클러스터 기반 + 충돌 회피
 function buildWorldLayout(participants: Participant[], currentUserId: string) {
   const participantCount = Math.max(participants.length, 1);
   const clusters: Record<string, { x: number; y: number }> = {};
 
+  // participant 중심 좌표 계산 (원형 배치)
   participants.forEach((participant, index) => {
     const angle = (index / participantCount) * Math.PI * 2 - Math.PI / 2;
     const ellipseRadiusX = participantCount <= 2 ? 180 : CLUSTER_SPREAD_X;
@@ -207,26 +245,25 @@ function buildWorldLayout(participants: Participant[], currentUserId: string) {
       }
 
       placedBubbles.push(placedBubble);
-        bubbles.push({
-          id: `${participant.id}-${interest.id}`,
-          interest,
-          participantId: participant.id,
-          participantName: participant.name,
-          participantColor: participant.color,
-          worldX: placedBubble.x,
-          worldY: placedBubble.y,
-          size: placedBubble.size,
-          isMine: participant.id === currentUserId
-        });
+      // 최종 bubble 객체 생성
+      bubbles.push({
+        id: `${participant.id}-${interest.id}`,
+        interest,
+        participantId: participant.id,
+        participantName: participant.name,
+        participantColor: participant.color,
+        worldX: placedBubble.x,
+        worldY: placedBubble.y,
+        size: placedBubble.size,
+        isMine: participant.id === currentUserId
+      });
     });
   });
 
   return bubbles;
 }
 
-// ============================================================
-// 시각 스타일 헬퍼 함수
-// ============================================================
+// 버블 애니메이션 값 생성 (부유, 회전 등)
 function getBubbleMotionValues(bubble: FieldBubble, index: number) {
   const floatDuration = 6.8 + seededRandom(index * 37 + bubble.participantId.length * 19) * 2.6;
   const swayDuration = 5.4 + seededRandom(index * 41 + bubble.participantName.length * 11) * 1.8;
@@ -264,7 +301,7 @@ export default function BubbleFieldScreen({
   setSelectedBubble: (bubble: Interest | null) => void;
 }) {
   // --------------------------------------------
-  // UI 상태
+  // UI 상태 관리 (선택, 토스트, 모달 등)
   // --------------------------------------------
   const [showNotification, setShowNotification] = useState(false);
   const [showPopConfirm, setShowPopConfirm] = useState(false);
@@ -274,7 +311,7 @@ export default function BubbleFieldScreen({
   const [viewportSize, setViewportSize] = useState({ width: window.innerWidth, height: window.innerHeight - HEADER_HEIGHT });
 
   // --------------------------------------------
-  // 제스처 / 드래그 ref
+  // 드래그 및 포인터 상태 관리
   // --------------------------------------------
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
@@ -286,7 +323,7 @@ export default function BubbleFieldScreen({
   const lastCameraLayoutKeyRef = useRef('');
 
   // --------------------------------------------
-  // 제스처 헬퍼 함수
+  // 드래그 상태 초기화
   // --------------------------------------------
   const resetDragState = () => {
     window.setTimeout(() => {
@@ -297,18 +334,38 @@ export default function BubbleFieldScreen({
   };
 
   // --------------------------------------------
-  // 외부에서 주입받는 데이터
-  // participants, currentUserId
+  // 현재 데이터 주입 방식
+  // - 지금은 App.tsx 에서 participants / currentUserId 를 props로 내려받는다.
+  // - 즉, 아직 이 화면 자체가 서버 fetch를 하지는 않는다.
+  //
+  // TODO (API 연결 시):
+  // 1. roomCode 기준으로 room_participants 조회
+  // 2. interests_json 문자열을 Interest[] 로 파싱
+  // 3. Participant 화면 타입으로 매핑
+  // 4. 그 결과를 fieldBubbles 생성의 입력값으로 사용
   // --------------------------------------------
 
-  // participants / currentUserId 기반으로만 버블 레이아웃을 계산
-  // --------------------------------------------
-  // 파생 레이아웃 데이터
-  // --------------------------------------------
+  // TODO (API 연결 예정 위치)
+  // 현재는 props 기반이라 실제 fetch/useEffect를 돌리지 않는다.
+  // 백엔드 준비 후 이 자리에 아래와 같은 흐름이 들어올 예정:
+  //
+  // useEffect(() => {
+  //   // 1. GET /rooms/:code 또는 field 전용 endpoint 호출
+  //   // 2. room_participants 응답 수신
+  //   // 3. interests_json 파싱
+  //   // 4. local state(setParticipantsFromApi)에 저장
+  // }, [roomCode]);
+  //
+  // 그 이후 buildWorldLayout의 입력을 props participants가 아니라
+  // API에서 가공한 participants 상태로 바꾸면 된다.
+
+  // 현재는 props로 받은 participants를 bubble 데이터로 변환한다.
+  // TODO: API 연결 후에는 "가공된 room_participants 상태"를 이 입력값으로 교체할 예정.
   const fieldBubbles = useMemo(() => {
     return buildWorldLayout(participants, currentUserId);
   }, [participants, currentUserId]);
 
+  // 전체 버블을 중앙에 배치하는 초기 카메라 계산
   const getInitialCamera = useCallback((width: number, height: number) => {
     if (fieldBubbles.length === 0) {
       return { x: 0, y: 0 };
@@ -325,9 +382,7 @@ export default function BubbleFieldScreen({
     };
   }, [fieldBubbles]);
 
-  // --------------------------------------------
-  // 뷰포트 / 초기 카메라 설정
-  // --------------------------------------------
+  // viewport 크기 추적 (resize 대응)
   useLayoutEffect(() => {
     const updateViewport = () => {
       setViewportSize({ width: window.innerWidth, height: window.innerHeight - HEADER_HEIGHT });
@@ -341,6 +396,7 @@ export default function BubbleFieldScreen({
     };
   }, []);
 
+  // 레이아웃 변경 시 camera 재정렬
   useEffect(() => {
     if (viewportSize.width === 0 || viewportSize.height === 0) return;
     if (isDragging) return;
@@ -361,9 +417,7 @@ export default function BubbleFieldScreen({
     setCamera(getInitialCamera(viewportSize.width, viewportSize.height));
   }, [fieldBubbles, getInitialCamera, viewportSize, isDragging]);
 
-  // --------------------------------------------
-  // 포인터 / 드래그 핸들러
-  // --------------------------------------------
+  // 포인터 기반 카메라 이동 처리
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     const container = scrollContainerRef.current;
     if (!container) return;
@@ -420,9 +474,9 @@ export default function BubbleFieldScreen({
     resetDragState();
   };
 
-  // --------------------------------------------
-  // 버블 상호작용
-  // --------------------------------------------
+  // 버블 클릭 처리 (상호작용 시작)
+  // 현재는 프론트 내부 상태만 변경한다.
+  // TODO: API 연결 후에는 공개 처리 / 요청 전송 등의 서버 액션이 이 흐름에 연결될 수 있다.
   const handleBubbleTap = (bubble: FieldBubble) => {
     if (dragMovedRef.current) return;
     if (bubble.isMine) return;
@@ -433,6 +487,9 @@ export default function BubbleFieldScreen({
     setShowPopConfirm(true);
   };
 
+  // 버블 터뜨리기 로직 (알림 포함)
+  // 현재는 mock 상호작용만 처리한다.
+  // TODO: API 연결 후에는 여기서 공개 처리, 요청 생성, 상태 동기화 등을 호출할 수 있다.
   const handlePop = () => {
     setShowPopConfirm(false);
     setShowNotification(true);
@@ -443,9 +500,9 @@ export default function BubbleFieldScreen({
     }, 3000);
   };
 
-  // --------------------------------------------
-  // 렌더링
-  // --------------------------------------------
+  // ==============================
+  // 렌더링 시작
+  // ==============================
   return (
     <div
       className="h-screen w-screen overflow-hidden fixed inset-0 bg-gradient-to-b from-purple-50/30 to-white select-none"
@@ -520,7 +577,7 @@ export default function BubbleFieldScreen({
           }
         }
       `}</style>
-      {/* 상단 바 */}
+      {/* 상단 헤더: 제목 + 참가자 수 */}
       <div
         className="fixed top-0 left-0 right-0 z-40 bg-white/92 backdrop-blur-md border-b border-purple-100"
         style={{
@@ -542,7 +599,7 @@ export default function BubbleFieldScreen({
         </div>
       </div>
 
-      {/* 버블 필드 / 카메라 뷰포트 */}
+      {/* 버블 필드 영역 (카메라 이동 대상) */}
       <div
         style={{
           marginTop: HEADER_HEIGHT,
@@ -579,14 +636,20 @@ export default function BubbleFieldScreen({
               className="relative"
               style={{ position: 'relative', width: '100%', height: '100%' }}
             >
+              {/* 데이터 없음 상태 */}
               {fieldBubbles.length === 0 && (
                 <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
                   <div className="rounded-3xl bg-white/80 backdrop-blur-sm px-6 py-5 shadow-sm border border-purple-100">
                     <p className="text-sm font-medium text-gray-700">아직 표시할 버블 데이터가 없어요</p>
-                    <p className="mt-1 text-xs text-gray-500">로비에서 참가자와 관심사를 먼저 준비해 주세요</p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      현재는 임시 participants 데이터가 비어 있거나, 이후 API 데이터가 아직 연결되지 않은 상태예요
+                    </p>
                   </div>
                 </div>
               )}
+              {/* 버블 렌더링 (world → screen 좌표 변환)
+                  - 현재는 props participants 기반
+                  - 이후에는 API에서 받은 room_participants 가공 결과 기반으로 렌더링 */}
               {fieldBubbles.map((bubble, index) => {
                 const isSelected = selectedBubble?.id === bubble.interest.id;
                 const motion = getBubbleMotionValues(bubble, index);
@@ -658,7 +721,7 @@ export default function BubbleFieldScreen({
         </div>
       </div>
 
-      {/* 플로팅 액션 버튼 */}
+      {/* 공통 관심사 버튼 */}
       <button
         onClick={onShowCommonGround}
         className="fixed bottom-6 right-5 w-14 h-14 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full shadow-xl shadow-purple-300/50 flex items-center justify-center active:scale-95 transition-transform z-50"
@@ -667,7 +730,7 @@ export default function BubbleFieldScreen({
         <Sparkles className="w-6 h-6 text-white" />
       </button>
 
-      {/* 알림 토스트 */}
+      {/* 상호작용 결과 알림 */}
       {showNotification && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-top duration-300">
           <div className="bg-purple-600 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-2">
@@ -683,7 +746,7 @@ export default function BubbleFieldScreen({
         </div>
       )}
 
-      {/* 버블 액션 바텀시트 */}
+      {/* 버블 액션 UI */}
       {showPopConfirm && selectedBubble && (
         <div
           className="fixed inset-0 bg-black/30 z-50 flex items-end"

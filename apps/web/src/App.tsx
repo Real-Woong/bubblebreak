@@ -164,6 +164,8 @@ export default function App() {
         <LobbyScreen
           roomCode={mode === 'join' ? roomCodeInput || roomCode : roomCode}
           slots={roomSlots}
+          currentUserId="me"
+          isHost={mode === 'create'}
           onNavigate={setCurrentScreen}
         />
       )}
