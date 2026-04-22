@@ -1,79 +1,34 @@
 import { Lock } from 'lucide-react';
 import type { Interest } from '../types/bubble';
 
-const USER_LEVEL_GRADIENTS = {
-  user1: {
-    deep1: 'linear-gradient(135deg, rgb(192 132 252), rgb(168 85 247))',
-    deep2: 'linear-gradient(135deg, rgb(244 114 182), rgb(236 72 153))',
-    deep3: 'linear-gradient(135deg, rgb(168 85 247), rgb(236 72 153))'
-  },
-  user2: {
-    deep1: 'linear-gradient(135deg, rgb(190 242 100), rgb(163 230 53))',
-    deep2: 'linear-gradient(135deg, rgb(74 222 128), rgb(34 197 94))',
-    deep3: 'linear-gradient(135deg, rgb(132 204 22), rgb(22 163 74))'
-  },
-  user3: {
-    deep1: 'linear-gradient(135deg, rgb(125 211 252), rgb(56 189 248))',
-    deep2: 'linear-gradient(135deg, rgb(96 165 250), rgb(59 130 246))',
-    deep3: 'linear-gradient(135deg, rgb(56 189 248), rgb(37 99 235))'
-  },
-  user4: {
-    deep1: 'linear-gradient(135deg, rgb(253 224 71), rgb(250 204 21))',
-    deep2: 'linear-gradient(135deg, rgb(251 191 36), rgb(245 158 11))',
-    deep3: 'linear-gradient(135deg, rgb(250 204 21), rgb(217 119 6))'
-  },
-  user5: {
-    deep1: 'linear-gradient(135deg, rgb(167 139 250), rgb(139 92 246))',
-    deep2: 'linear-gradient(135deg, rgb(129 140 248), rgb(99 102 241))',
-    deep3: 'linear-gradient(135deg, rgb(139 92 246), rgb(79 70 229))'
-  },
-  user6: {
-    deep1: 'linear-gradient(135deg, rgb(153 246 228), rgb(45 212 191))',
-    deep2: 'linear-gradient(135deg, rgb(45 212 191), rgb(20 184 166))',
-    deep3: 'linear-gradient(135deg, rgb(45 212 191), rgb(13 148 136))'
-  }
-} as const;
+// BubbleBreak 시그니처 팔레트
+// Setup 화면과 같은 계열을 유지하되,
+// BubbleField에서는 사용자별 차이를 없애고 depth만 색으로 구분한다.
+const LEVEL_GRADIENTS: Record<Interest['level'], string> = {
+  deep1: 'linear-gradient(135deg, rgb(192 132 252), rgb(168 85 247))',
+  deep2: 'linear-gradient(135deg, rgb(244 114 182), rgb(236 72 153))',
+  deep3: 'linear-gradient(135deg, rgb(168 85 247), rgb(219 39 119))'
+};
 
-function getUserSlot(participantId: string) {
-  if (participantId === 'me' || participantId === 'user-1' || participantId === 'user1') {
-    return 'user1';
-  }
-
-  const numericMatch = participantId.match(/\d+/);
-  const numericId = numericMatch ? Number(numericMatch[0]) : 1;
-  const normalized = Math.min(Math.max(numericId, 1), 6);
-
-  return `user${normalized}` as keyof typeof USER_LEVEL_GRADIENTS;
+function getBubbleGradient(level: Interest['level']) {
+  return LEVEL_GRADIENTS[level];
 }
 
-function getBubbleGradient(participantId: string, level: Interest['level']) {
-  const userSlot = getUserSlot(participantId);
-  return USER_LEVEL_GRADIENTS[userSlot][level];
-}
-
-function getBubbleShadowByParticipant(participantId: string) {
-  const userSlot = getUserSlot(participantId);
-
-  switch (userSlot) {
-    case 'user1':
-      return '0 14px 30px rgba(168, 85, 247, 0.22), 0 6px 14px rgba(236, 72, 153, 0.14)';
-    case 'user2':
-      return '0 14px 30px rgba(132, 204, 22, 0.22), 0 6px 14px rgba(34, 197, 94, 0.14)';
-    case 'user3':
-      return '0 14px 30px rgba(56, 189, 248, 0.22), 0 6px 14px rgba(59, 130, 246, 0.14)';
-    case 'user4':
-      return '0 14px 30px rgba(250, 204, 21, 0.22), 0 6px 14px rgba(245, 158, 11, 0.14)';
-    case 'user5':
-      return '0 14px 30px rgba(139, 92, 246, 0.22), 0 6px 14px rgba(99, 102, 241, 0.14)';
-    case 'user6':
-      return '0 14px 30px rgba(45, 212, 191, 0.22), 0 6px 14px rgba(13, 148, 136, 0.14)';
+function getBubbleShadowByLevel(level: Interest['level']) {
+  switch (level) {
+    case 'deep1':
+      return '0 14px 30px rgba(192, 132, 252, 0.24), 0 6px 14px rgba(168, 85, 247, 0.16)';
+    case 'deep2':
+      return '0 14px 30px rgba(244, 114, 182, 0.24), 0 6px 14px rgba(236, 72, 153, 0.16)';
+    case 'deep3':
+      return '0 14px 30px rgba(168, 85, 247, 0.24), 0 6px 14px rgba(219, 39, 119, 0.16)';
     default:
-      return '0 14px 30px rgba(168, 85, 247, 0.14), 0 6px 14px rgba(168, 85, 247, 0.10)';
+      return '0 14px 30px rgba(192, 132, 252, 0.18), 0 6px 14px rgba(192, 132, 252, 0.10)';
   }
 }
 
-function getBubbleShadow(participantId: string, isSelected: boolean) {
-  const baseShadow = getBubbleShadowByParticipant(participantId);
+function getBubbleShadow(level: Interest['level'], isSelected: boolean) {
+  const baseShadow = getBubbleShadowByLevel(level);
 
   return isSelected
     ? `${baseShadow}, 0 0 0 4px rgba(255, 255, 255, 0.78)`
@@ -122,16 +77,12 @@ function getAdaptiveFontSize(text: string, baseSize: number, sizePx: number) {
 
 export default function BubbleField({
   interest,
-  participantId,
-  participantColor,
   sizePx,
   isMine,
   isSelected,
   onTap
 }: {
   interest: Interest;
-  participantId: string;
-  participantColor: string;
   sizePx: number;
   isMine: boolean;
   isSelected: boolean;
@@ -152,14 +103,14 @@ export default function BubbleField({
         touchAction: 'none',
         WebkitTapHighlightColor: 'transparent',
         pointerEvents: 'auto',
-        boxShadow: getBubbleShadow(participantId, isSelected)
+        boxShadow: getBubbleShadow(interest.level, isSelected)
       }}
     >
       <div
         className="absolute inset-0 rounded-full"
         style={{
           pointerEvents: 'none',
-          background: getBubbleGradient(participantId, interest.level),
+          background: getBubbleGradient(interest.level),
           ...getBubbleSurfaceStyle(isSelected)
         }}
       />

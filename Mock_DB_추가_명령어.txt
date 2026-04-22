@@ -1,0 +1,246 @@
+한도윤도 `is_ready = 1`로 바꿔뒀습니다. 지금 `JSNTL6` 방의 ready 상태는:
+
+- 호스트확인: `0`
+- 박서준: `1`
+- 최유나: `1`
+- 한도윤: `1`
+
+이제 네가 나중에 직접 mock 데이터를 넣을 수 있게, **로컬 D1에 데이터 넣는 터미널 명령 패턴 전체**를 정리해드릴게요.
+
+**기본 위치**
+```bash
+cd /Users/kim_jinwoong/Desktop/project/Project_Personal/react/BubbleBreak/apps/worker
+```
+
+**1. 테이블 확인**
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "SELECT name FROM sqlite_master WHERE type='table';"
+```
+
+**2. rooms 확인**
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "SELECT * FROM rooms;"
+```
+
+**3. users 확인**
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "SELECT * FROM users;"
+```
+
+**4. room_participants 확인**
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "SELECT * FROM room_participants;"
+```
+
+---
+
+## 새 mock user 넣기
+
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "
+INSERT INTO users (id, nickname, created_at)
+VALUES ('user-mock-001', '홍길동', '2026-04-22T06:00:00.000Z');
+"
+```
+
+여기서 네가 바꿔야 하는 것:
+- `user-mock-001`
+- `홍길동`
+- 시간
+
+---
+
+## 특정 room에 participant 넣기
+
+먼저 room id를 알아야 해요.
+
+예:
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "SELECT id, code FROM rooms WHERE code = 'JSNTL6';"
+```
+
+그 다음 participant 넣기:
+
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "
+INSERT INTO room_participants (id, room_id, user_id, joined_at, status, interests_json, is_ready)
+VALUES (
+  'rp-mock-001',
+  '0aa2dad0-8de2-4026-bd5a-dc3762cadb2e',
+  'user-mock-001',
+  '2026-04-22T06:00:00.000Z',
+  'joined',
+  '[{\"text\":\"게임\",\"level\":\"deep1\"},{\"text\":\"전략게임\",\"level\":\"deep2\"},{\"text\":\"랭크분석\",\"level\":\"deep3\"}]',
+  0
+);
+"
+```
+
+여기서 네가 바꿔야 하는 것:
+- `rp-mock-001`
+- `room_id`
+- `user_id`
+- `interests_json`
+- `is_ready`
+
+---
+
+## user + participant를 한 번에 넣기
+이게 제일 자주 쓰게 될 명령이에요.
+
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "
+INSERT INTO users (id, nickname, created_at)
+VALUES ('user-mock-002', '김하늘', '2026-04-22T06:05:00.000Z');
+
+INSERT INTO room_participants (id, room_id, user_id, joined_at, status, interests_json, is_ready)
+VALUES (
+  'rp-mock-002',
+  '0aa2dad0-8de2-4026-bd5a-dc3762cadb2e',
+  'user-mock-002',
+  '2026-04-22T06:05:00.000Z',
+  'joined',
+  '[{\"text\":\"여행\",\"level\":\"deep1\"},{\"text\":\"일본여행\",\"level\":\"deep2\"},{\"text\":\"혼자 여행 계획짜기\",\"level\":\"deep3\"}]',
+  1
+);
+"
+```
+
+---
+
+## ready 상태 바꾸기
+특정 user를 준비완료로:
+
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "
+UPDATE room_participants
+SET is_ready = 1
+WHERE user_id = 'user-mock-002';
+"
+```
+
+다시 대기중으로:
+
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "
+UPDATE room_participants
+SET is_ready = 0
+WHERE user_id = 'user-mock-002';
+"
+```
+
+---
+
+## 특정 room 참가자 보기
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "
+SELECT
+  rooms.code,
+  users.nickname,
+  room_participants.user_id,
+  room_participants.status,
+  room_participants.is_ready,
+  room_participants.interests_json
+FROM room_participants
+INNER JOIN rooms ON rooms.id = room_participants.room_id
+INNER JOIN users ON users.id = room_participants.user_id
+WHERE rooms.code = 'JSNTL6'
+ORDER BY room_participants.joined_at ASC;
+"
+```
+
+---
+
+## 특정 user 삭제
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "
+DELETE FROM room_participants WHERE user_id = 'user-mock-002';
+DELETE FROM users WHERE id = 'user-mock-002';
+"
+```
+
+주의:
+- 먼저 `room_participants`에서 지우고
+- 그 다음 `users`에서 지우는 게 안전합니다
+
+---
+
+## 방 전체 참가자 비우기
+host까지 포함해서 다 지우면 room은 남고 참가자만 없어집니다.
+
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "
+DELETE FROM room_participants
+WHERE room_id = '0aa2dad0-8de2-4026-bd5a-dc3762cadb2e';
+"
+```
+
+---
+
+## mock 넣을 때 가장 중요한 JSON 형식
+`interests_json`은 이런 문자열이어야 해요.
+
+```json
+[
+  {"text":"게임","level":"deep1"},
+  {"text":"전략게임","level":"deep2"},
+  {"text":"랭크분석","level":"deep3"}
+]
+```
+
+터미널 SQL 안에서는 이렇게 이스케이프해서 넣습니다.
+
+```sql
+'[{\"text\":\"게임\",\"level\":\"deep1\"},{\"text\":\"전략게임\",\"level\":\"deep2\"},{\"text\":\"랭크분석\",\"level\":\"deep3\"}]'
+```
+
+---
+
+## 네가 나중에 복붙해서 쓰기 좋은 템플릿
+
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "
+INSERT INTO users (id, nickname, created_at)
+VALUES ('USER_ID', '닉네임', '2026-04-22T06:00:00.000Z');
+
+INSERT INTO room_participants (id, room_id, user_id, joined_at, status, interests_json, is_ready)
+VALUES (
+  'PARTICIPANT_ID',
+  'ROOM_ID',
+  'USER_ID',
+  '2026-04-22T06:00:00.000Z',
+  'joined',
+  '[{\"text\":\"deep1관심사\",\"level\":\"deep1\"},{\"text\":\"deep2관심사\",\"level\":\"deep2\"},{\"text\":\"deep3관심사\",\"level\":\"deep3\"}]',
+  0
+);
+"
+```
+
+---
+
+**아주 짧은 요약**
+네가 mock 넣을 때 거의 항상 이 순서로 하면 됩니다.
+
+1. room id 확인  
+```bash
+SELECT id, code FROM rooms WHERE code = 'ROOMCODE';
+```
+
+2. user insert  
+```bash
+INSERT INTO users ...
+```
+
+3. participant insert  
+```bash
+INSERT INTO room_participants ...
+```
+
+4. 확인  
+```bash
+SELECT ... FROM room_participants ...
+```
+
+원하면 다음엔 내가 이걸 아예
+**`mock 넣기용 SQL 템플릿 모음`**
+형태로 `닉네임만 바꾸면 되는 버전`으로 더 깔끔하게 정리해드릴게요.

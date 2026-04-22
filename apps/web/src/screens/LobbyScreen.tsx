@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Copy, Check, Users, ChevronRight } from 'lucide-react';
-import type { Screen, RoomSlot } from '../types/bubble';
+import type { Screen } from '../types/bubble';
+import { getRoom, readyRoom, startRoom } from '../api/room';
+import { mapApiParticipantsToRoomSlots } from '../mappers/room';
 
 // LobbyScreen
 // 이 화면은 "방 대기실" 역할을 한다.
@@ -37,20 +39,57 @@ import type { Screen, RoomSlot } from '../types/bubble';
 
 export default function LobbyScreen({
   roomCode,
-  slots,
   currentUserId,
-  isHost,
   onNavigate
 }: {
   roomCode: string;
-  slots: RoomSlot[];
   currentUserId: string;
-  isHost: boolean;
   onNavigate: (screen: Screen) => void;
 }) {
   // 방 코드 복사 버튼 상태
   // 클릭 시 2초 동안 체크 아이콘으로 변경
   const [copied, setCopied] = useState(false);
+
+  // room 조회 응답을 local state로 보관
+  const [roomStatus, setRoomStatus] = useState<string>('');
+  const [hostUserId, setHostUserId] = useState('');
+  const [slots, setSlots] = useState<ReturnType<typeof mapApiParticipantsToRoomSlots>>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isReadySubmitting, setIsReadySubmitting] = useState(false);
+  const [isStartSubmitting, setIsStartSubmitting] = useState(false);
+
+  // room 조회 함수
+  const fetchRoom = async () => {
+    if (!roomCode) return;
+
+    try {
+      setError(null);
+      const response = await getRoom(roomCode);
+      setRoomStatus(response.room.status);
+      setHostUserId(response.room.hostUserId);
+      setSlots(mapApiParticipantsToRoomSlots(response.participants));
+    } catch (fetchError) {
+      setError(fetchError instanceof Error ? fetchError.message : '방 정보를 불러오지 못했어요');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 화면 진입 시 room 상태 조회
+  useEffect(() => {
+    setIsLoading(true);
+    void fetchRoom();
+
+    const intervalId = window.setInterval(() => {
+      void fetchRoom();
+    }, 3000);
+
+    return () => window.clearInterval(intervalId);
+  }, [roomCode]);
+
+  // host 여부는 서버 응답의 hostUserId 기준으로 계산한다.
+  const isHost = hostUserId === currentUserId;
 
   // 방 코드를 클립보드에 복사하는 함수
   // 복사 성공 시 copied 상태를 true로 바꿔 UI 피드백 제공
@@ -65,26 +104,64 @@ export default function LobbyScreen({
   };
 
   // 현재 방에 참가한 인원 수 계산 (empty 제외)
-  // NOTE: 지금은 slots(mock) 기준으로 계산
-  // TODO: API 연결 후에는 room_participants.length 기준으로 계산
   const participantCount = slots.filter((slot) => slot.type === 'participant').length;
 
   // participant 목록을 slot 기준으로 유지
   // 이유:
   // - participant 객체에는 status가 없음
   // - status는 slot에 존재함
-  // NOTE: 현재는 mock slots 구조를 사용 중
-  // TODO: API 연결 후에는 room_participants의 is_ready 필드를 사용하여 상태 계산
   const participantSlots = slots.filter((slot) => slot.type === 'participant');
 
   // host가 게임을 시작할 수 있는 조건
   // - 자기 자신(currentUserId)은 제외
   // - 나머지 모든 participant가 ready 상태여야 함
-  // NOTE: 현재는 slot.status로 판단
-  // TODO: API 연결 후에는 participant.is_ready (DB: room_participants.is_ready) 기준으로 판단
   const canStart = participantSlots
     .filter((slot) => slot.participant.id !== currentUserId)
     .every((slot) => slot.status === 'ready');
+
+  // start 가능 여부에는 최소 2명 조건과 room waiting 상태도 함께 반영
+  const isStartEnabled = isHost && participantCount >= 2 && roomStatus === 'waiting' && canStart;
+
+  // 현재 유저가 이미 ready 상태인지 확인
+  const amIReady = useMemo(
+    () =>
+      participantSlots.some(
+        (slot) => slot.participant.id === currentUserId && slot.status === 'ready'
+      ),
+    [participantSlots, currentUserId]
+  );
+
+  // participant 준비 완료 처리
+  const handleReady = async () => {
+    if (!roomCode || !currentUserId || isReadySubmitting || amIReady) return;
+
+    try {
+      setIsReadySubmitting(true);
+      setError(null);
+      await readyRoom(roomCode, { userId: currentUserId });
+      await fetchRoom();
+    } catch (readyError) {
+      setError(readyError instanceof Error ? readyError.message : '준비완료 처리에 실패했어요');
+    } finally {
+      setIsReadySubmitting(false);
+    }
+  };
+
+  // host 시작 처리
+  const handleStart = async () => {
+    if (!isStartEnabled || isStartSubmitting) return;
+
+    try {
+      setIsStartSubmitting(true);
+      setError(null);
+      await startRoom(roomCode, { userId: currentUserId });
+      onNavigate('field');
+    } catch (startError) {
+      setError(startError instanceof Error ? startError.message : '시작 처리에 실패했어요');
+    } finally {
+      setIsStartSubmitting(false);
+    }
+  };
 
   // -----------------------------
   // UI 렌더링 시작
@@ -95,7 +172,22 @@ export default function LobbyScreen({
         <div className="text-center mb-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">방 대기실</h2>
           <p className="text-sm text-gray-600">참여자들이 모이면 시작할 수 있어요</p>
+          {roomStatus && (
+            <p className="text-xs text-purple-500 mt-2">현재 방 상태: {roomStatus}</p>
+          )}
         </div>
+
+        {isLoading && (
+          <div className="bg-white/80 rounded-2xl p-4 mb-4 text-center text-sm text-gray-500">
+            방 정보를 불러오는 중...
+          </div>
+        )}
+
+        {error && (
+          <div className="bg-red-50 border border-red-100 rounded-2xl p-4 mb-4 text-center text-sm text-red-500">
+            {error}
+          </div>
+        )}
 
         {/* 방 코드 영역
             - 현재 방 코드 표시
@@ -202,17 +294,12 @@ export default function LobbyScreen({
           {isHost ? (
             <button
               onClick={() => {
-                if (!canStart) return;
-
-                // TODO: POST /rooms/:code/start
-                // body: { userId: currentUserId }
-                // 서버에서 room.status를 'started'로 변경
-                onNavigate('field');
+                void handleStart();
               }}
-              disabled={!canStart}
+              disabled={!isStartEnabled || isStartSubmitting}
               className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-4 rounded-full font-semibold shadow-lg shadow-purple-200/50 active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              BubbleBreaking 시작
+              {isStartSubmitting ? '시작 중...' : 'BubbleBreaking 시작'}
               <ChevronRight className="w-5 h-5" />
             </button>
           ) : (
@@ -220,13 +307,12 @@ export default function LobbyScreen({
                 - 준비완료 버튼 제공 */
             <button
               onClick={() => {
-                // TODO: POST /rooms/:code/ready
-                // body: { userId: currentUserId }
-                // 서버에서 room_participants.is_ready = 1 업데이트
+                void handleReady();
               }}
+              disabled={isReadySubmitting || amIReady}
               className="w-full bg-gradient-to-r from-green-400 to-emerald-500 text-white py-4 rounded-full font-semibold shadow-lg active:scale-95 transition-transform"
             >
-              준비완료
+              {amIReady ? '준비완료됨' : isReadySubmitting ? '처리 중...' : '준비완료'}
             </button>
           )}
 
@@ -240,7 +326,7 @@ export default function LobbyScreen({
         </div>
 
         {/* host가 시작 못하는 이유 안내 메시지 */}
-        {isHost && !canStart && (
+        {isHost && !isStartEnabled && (
           <p className="text-xs text-center text-gray-500 mt-2">
             모든 참여자가 준비완료해야 시작할 수 있어요
           </p>

@@ -2,6 +2,7 @@ import { Dispatch, SetStateAction, useMemo, useState } from 'react';
 import { Lock, Plus, X, ChevronRight } from 'lucide-react';
 import type { Screen, DeepLevel, Interest } from '../types/bubble';
 import BubblePreview from '../components/BubblePreview';
+import { createRoom, joinRoom } from '../api/room';
 
 // EntryScreen 에서 선택한 진입 흐름
 // create = 방 만들기, join = 방 참여하기
@@ -27,6 +28,12 @@ type SetupScreenProps = {
 
   // App.tsx 에 있는 관심사 state setter 그대로 받음
   setInterests: Dispatch<SetStateAction<Interest[]>>;
+
+  // create/join 성공 후 받은 실제 userId 저장
+  setCurrentUserId: Dispatch<SetStateAction<string>>;
+
+  // create/join 성공 후 받은 실제 roomCode 저장
+  setRoomCode: Dispatch<SetStateAction<string>>;
 
   // App.tsx 의 화면 전환 setter 그대로 받음
   onNavigate: Dispatch<SetStateAction<Screen>>;
@@ -140,6 +147,8 @@ export default function SetupScreen({
   roomCodeInput,
   interests,
   setInterests,
+  setCurrentUserId,
+  setRoomCode,
   onNavigate,
 }: SetupScreenProps) {
   // 현재 어떤 깊이 탭을 보고 있는지
@@ -150,6 +159,12 @@ export default function SetupScreen({
 
   // 한글 조합 입력(IME) 중 Enter 오작동 방지용 상태
   const [isComposing, setIsComposing] = useState(false);
+
+  // API 요청 중 로딩 상태
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // create/join 실패 시 보여줄 에러 메시지
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // 현재 선택한 depth(activeLevel)에 관심사를 추가하는 함수
   // 규칙:
@@ -219,17 +234,48 @@ export default function SetupScreen({
   const positions = useMemo(() => buildPositions(interests), [interests]);
 
   // 완료 버튼 클릭 시 실행되는 함수
-  // 지금 단계에서는 아직 create / join API 를 호출하지 않고,
-  // 관심사가 1개 이상 있으면 lobby 화면으로만 이동시킨다.
-  // 다음 단계에서 여기 분기 안에 POST /rooms, POST /rooms/:code/join 이 들어갈 예정.
-  const handleSubmit = () => {
+  // create / join 실제 API 호출을 여기서 수행한다.
+  const handleSubmit = async () => {
     // 방 참여인데 room code 가 비어 있으면 막기
     if (mode === 'join' && !normalizedRoomCode) return;
 
     // 관심사가 하나도 없으면 진행 불가
     if (interests.length === 0) return;
+    if (!mode) return;
 
-    onNavigate('lobby');
+    try {
+      setIsSubmitting(true);
+      setSubmitError(null);
+
+      const apiInterests = interests.map((interest) => ({
+        text: interest.text,
+        level: interest.level,
+      }));
+
+      if (mode === 'create') {
+        const response = await createRoom({
+          nickname: nickname.trim(),
+          interests: apiInterests,
+        });
+
+        setCurrentUserId(response.userId);
+        setRoomCode(response.roomCode);
+      } else {
+        const response = await joinRoom(normalizedRoomCode, {
+          nickname: nickname.trim(),
+          interests: apiInterests,
+        });
+
+        setCurrentUserId(response.userId);
+        setRoomCode(response.roomCode);
+      }
+
+      onNavigate('lobby');
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : '입장 처리 중 오류가 발생했어요');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -430,10 +476,10 @@ export default function SetupScreen({
         <div className="px-5 mt-2">
           <button
             onClick={handleSubmit}
-            disabled={interests.length === 0 || (mode === 'join' && !normalizedRoomCode)}
+            disabled={isSubmitting || interests.length === 0 || (mode === 'join' && !normalizedRoomCode)}
             className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-4 rounded-full font-semibold shadow-lg shadow-purple-200/50 active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            {submitLabel}
+            {isSubmitting ? '처리 중...' : submitLabel}
             <ChevronRight className="w-5 h-5" />
           </button>
 
@@ -446,6 +492,12 @@ export default function SetupScreen({
           {mode === 'join' && !normalizedRoomCode && (
             <p className="text-xs text-center text-gray-500 mt-2">
               방 참여 시에는 방 코드가 필요해요
+            </p>
+          )}
+
+          {submitError && (
+            <p className="text-xs text-center text-red-500 mt-2">
+              {submitError}
             </p>
           )}
         </div>

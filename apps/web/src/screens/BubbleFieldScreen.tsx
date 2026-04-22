@@ -2,6 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Users, Sparkles, CheckCircle, Lock } from 'lucide-react';
 import type { Interest, Participant } from '../types/bubble';
 import BubbleField from '../components/BubbleField';
+import { getRoom } from '../api/room';
+import { mapApiParticipantsToParticipants } from '../mappers/room';
 
 // ============================================================
 // BubbleFieldScreen
@@ -34,89 +36,11 @@ type FieldBubble = {
   interest: Interest;
   participantId: string;
   participantName: string;
-  participantColor: string;
   worldX: number;
   worldY: number;
   size: number;
   isMine: boolean;
 };
-
-// 사용자별 색상 시스템
-// 동일 유저는 항상 같은 색 계열 유지
-const USER_MAIN_GRADIENTS = {
-  user1: {
-    deep1: 'from-pink-400 to-pink-500',
-    deep2: 'from-fuchsia-300 to-pink-400',
-    deep3: 'from-pink-500 to-rose-500'
-  },
-  user2: {
-    deep1: 'from-violet-400 to-purple-500',
-    deep2: 'from-purple-300 to-violet-400',
-    deep3: 'from-violet-500 to-fuchsia-500'
-  },
-  user3: {
-    deep1: 'from-sky-400 to-cyan-500',
-    deep2: 'from-cyan-300 to-sky-400',
-    deep3: 'from-sky-500 to-blue-500'
-  },
-  user4: {
-    deep1: 'from-lime-400 to-green-500',
-    deep2: 'from-green-300 to-lime-400',
-    deep3: 'from-lime-500 to-emerald-500'
-  },
-  user5: {
-    deep1: 'from-yellow-300 to-amber-400',
-    deep2: 'from-amber-200 to-yellow-300',
-    deep3: 'from-yellow-400 to-orange-400'
-  },
-  user6: {
-    deep1: 'from-emerald-300 to-teal-400',
-    deep2: 'from-teal-200 to-emerald-300',
-    deep3: 'from-teal-400 to-cyan-400'
-  }
-} as const;
-
-// participantId → user slot 매핑
-// 색상/스타일 통일을 위한 정규화 과정
-function getUserSlot(participantId: string) {
-  if (participantId === 'me' || participantId === 'user-1' || participantId === 'user1') {
-    return 'user1';
-  }
-
-  const numericMatch = participantId.match(/\d+/);
-  const numericId = numericMatch ? Number(numericMatch[0]) : 1;
-
-  const normalized = Math.min(Math.max(numericId, 1), 6);
-  return `user${normalized}` as keyof typeof USER_MAIN_GRADIENTS;
-}
-
-// interest level에 따른 그라데이션 선택
-function getBubbleGradient(participantId: string, level: Interest['level']) {
-  const userSlot = getUserSlot(participantId);
-  return USER_MAIN_GRADIENTS[userSlot][level];
-}
-
-// 사용자별 shadow 차별화 (시각적 구분 강화)
-function getBubbleShadowByParticipant(participantId: string) {
-  const userSlot = getUserSlot(participantId);
-
-  switch (userSlot) {
-    case 'user1':
-      return '0 14px 30px rgba(244, 114, 182, 0.22), 0 6px 14px rgba(244, 114, 182, 0.14)';
-    case 'user2':
-      return '0 14px 30px rgba(168, 85, 247, 0.22), 0 6px 14px rgba(168, 85, 247, 0.14)';
-    case 'user3':
-      return '0 14px 30px rgba(56, 189, 248, 0.22), 0 6px 14px rgba(56, 189, 248, 0.14)';
-    case 'user4':
-      return '0 14px 30px rgba(163, 230, 53, 0.22), 0 6px 14px rgba(163, 230, 53, 0.14)';
-    case 'user5':
-      return '0 14px 30px rgba(250, 204, 21, 0.22), 0 6px 14px rgba(250, 204, 21, 0.14)';
-    case 'user6':
-      return '0 14px 30px rgba(45, 212, 191, 0.22), 0 6px 14px rgba(45, 212, 191, 0.14)';
-    default:
-      return '0 14px 30px rgba(168, 85, 247, 0.14), 0 6px 14px rgba(168, 85, 247, 0.10)';
-  }
-}
 
 // 레이아웃 관련 상수 정의
 // 버블 간 거리, 반경, 최소 간격 등
@@ -251,7 +175,6 @@ function buildWorldLayout(participants: Participant[], currentUserId: string) {
         interest,
         participantId: participant.id,
         participantName: participant.name,
-        participantColor: participant.color,
         worldX: placedBubble.x,
         worldY: placedBubble.y,
         size: placedBubble.size,
@@ -288,14 +211,16 @@ function getBubbleMotionValues(bubble: FieldBubble, index: number) {
 // 화면 컴포넌트
 // ============================================================
 export default function BubbleFieldScreen({
-  participants,
+  roomCode,
   currentUserId,
+  onParticipantsLoaded,
   onShowCommonGround,
   selectedBubble,
   setSelectedBubble
 }: {
-  participants: Participant[];
+  roomCode: string;
   currentUserId: string;
+  onParticipantsLoaded: (participants: Participant[]) => void;
   onShowCommonGround: () => void;
   selectedBubble: Interest | null;
   setSelectedBubble: (bubble: Interest | null) => void;
@@ -309,6 +234,9 @@ export default function BubbleFieldScreen({
   const [isDragging, setIsDragging] = useState(false);
   const [camera, setCamera] = useState({ x: 0, y: 0 });
   const [viewportSize, setViewportSize] = useState({ width: window.innerWidth, height: window.innerHeight - HEADER_HEIGHT });
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // --------------------------------------------
   // 드래그 및 포인터 상태 관리
@@ -359,11 +287,32 @@ export default function BubbleFieldScreen({
   // 그 이후 buildWorldLayout의 입력을 props participants가 아니라
   // API에서 가공한 participants 상태로 바꾸면 된다.
 
-  // 현재는 props로 받은 participants를 bubble 데이터로 변환한다.
-  // TODO: API 연결 후에는 "가공된 room_participants 상태"를 이 입력값으로 교체할 예정.
+  // 실제 room participants를 API에서 읽어와 local state로 관리한다.
   const fieldBubbles = useMemo(() => {
     return buildWorldLayout(participants, currentUserId);
   }, [participants, currentUserId]);
+
+  // room 조회 후 BubbleField 렌더링용 participants 생성
+  useEffect(() => {
+    const fetchParticipants = async () => {
+      if (!roomCode) return;
+
+      try {
+        setIsLoading(true);
+        setError(null);
+        const response = await getRoom(roomCode);
+        const mappedParticipants = mapApiParticipantsToParticipants(response.participants);
+        setParticipants(mappedParticipants);
+        onParticipantsLoaded(mappedParticipants);
+      } catch (fetchError) {
+        setError(fetchError instanceof Error ? fetchError.message : '버블 필드 데이터를 불러오지 못했어요');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    void fetchParticipants();
+  }, [roomCode, onParticipantsLoaded]);
 
   // 전체 버블을 중앙에 배치하는 초기 카메라 계산
   const getInitialCamera = useCallback((width: number, height: number) => {
@@ -637,12 +586,18 @@ export default function BubbleFieldScreen({
               style={{ position: 'relative', width: '100%', height: '100%' }}
             >
               {/* 데이터 없음 상태 */}
-              {fieldBubbles.length === 0 && (
+              {(isLoading || error || fieldBubbles.length === 0) && (
                 <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
                   <div className="rounded-3xl bg-white/80 backdrop-blur-sm px-6 py-5 shadow-sm border border-purple-100">
-                    <p className="text-sm font-medium text-gray-700">아직 표시할 버블 데이터가 없어요</p>
+                    <p className="text-sm font-medium text-gray-700">
+                      {isLoading
+                        ? '버블 데이터를 불러오는 중이에요'
+                        : error
+                          ? '버블 데이터를 불러오지 못했어요'
+                          : '아직 표시할 버블 데이터가 없어요'}
+                    </p>
                     <p className="mt-1 text-xs text-gray-500">
-                      현재는 임시 participants 데이터가 비어 있거나, 이후 API 데이터가 아직 연결되지 않은 상태예요
+                      {error ?? '현재 room participants 기준으로 버블을 구성하고 있어요'}
                     </p>
                   </div>
                 </div>
@@ -706,7 +661,6 @@ export default function BubbleFieldScreen({
                       <BubbleField
                         interest={bubble.interest}
                         participantId={bubble.participantId}
-                        participantColor={bubble.participantColor}
                         sizePx={bubble.size}
                         isMine={bubble.isMine}
                         isSelected={isSelected}

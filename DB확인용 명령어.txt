@@ -1,0 +1,174 @@
+좋아요. 로컬 D1 기준으로 **백엔드 DB 확인용 터미널 명령어**를 한 번에 정리해드릴게요.
+
+모두 `apps/worker` 폴더에서 실행하면 됩니다.
+
+```bash
+cd /Users/kim_jinwoong/Desktop/project/Project_Personal/react/BubbleBreak/apps/worker
+```
+
+**1. 테이블 목록 보기**
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "SELECT name FROM sqlite_master WHERE type='table';"
+```
+
+**2. users 전체 보기**
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "SELECT * FROM users;"
+```
+
+**3. rooms 전체 보기**
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "SELECT * FROM rooms;"
+```
+
+**4. room_participants 전체 보기**
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "SELECT * FROM room_participants;"
+```
+
+**5. 방 코드만 보기**
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "SELECT code, status, host_user_id FROM rooms;"
+```
+
+**6. host 닉네임까지 같이 보기**
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "
+SELECT
+  rooms.id,
+  rooms.code,
+  rooms.status,
+  rooms.host_user_id,
+  users.nickname AS host_nickname
+FROM rooms
+INNER JOIN users ON users.id = rooms.host_user_id;
+"
+```
+
+**7. 특정 방의 참가자 목록 보기**
+예: `AB12CD`
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "
+SELECT
+  rooms.code,
+  users.nickname,
+  room_participants.user_id,
+  room_participants.status,
+  room_participants.is_ready,
+  room_participants.interests_json
+FROM room_participants
+INNER JOIN rooms ON rooms.id = room_participants.room_id
+INNER JOIN users ON users.id = room_participants.user_id
+WHERE rooms.code = 'AB12CD'
+ORDER BY room_participants.joined_at ASC;
+"
+```
+
+**8. 김진웅이 host인 방 찾기**
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "
+SELECT
+  rooms.code,
+  rooms.status,
+  users.nickname AS host_nickname
+FROM rooms
+INNER JOIN users ON users.id = rooms.host_user_id
+WHERE users.nickname = '김진웅';
+"
+```
+
+**9. 김진웅 user id 확인**
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "
+SELECT id, nickname, created_at
+FROM users
+WHERE nickname = '김진웅';
+"
+```
+
+**10. 김진웅이 participant로도 들어가 있는지 확인**
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "
+SELECT
+  users.nickname,
+  room_participants.user_id,
+  room_participants.room_id,
+  room_participants.status,
+  room_participants.is_ready
+FROM room_participants
+INNER JOIN users ON users.id = room_participants.user_id
+WHERE users.nickname = '김진웅';
+"
+```
+
+---
+
+**김진웅 즉 Host로 어떻게 접속하냐**
+지금 구현 기준으로는 **쿠키 로그인 방식이 아니라, create 응답으로 받은 `userId`를 FE가 들고 가는 구조**예요.
+
+그래서 host가 되는 방법은 2가지예요.
+
+**방법 1. 가장 정상적인 방법**
+- FE에서 `방 만들기`를 누름
+- `POST /rooms` 성공
+- 응답으로 받은 `userId`가 host userId가 됨
+- 그 상태로 Lobby에 들어가면 host로 동작
+
+즉, **방을 직접 만든 사람이 host**입니다.
+
+**방법 2. DB에 미리 넣어둔 김진웅(host) 방으로 “host처럼” 접속하고 싶을 때**
+지금 구조상 FE는 DB만 보고 host가 되는 게 아니라,
+**현재 FE가 들고 있는 `currentUserId`가 rooms.host_user_id와 같아야 host처럼 동작**합니다.
+
+즉 seeded DB에 아래처럼 들어있다면:
+
+- host nickname: `김진웅`
+- host user id: `user-host-kim`
+- room code: `AB12CD`
+
+FE도 현재 유저를 `user-host-kim`으로 들고 있어야 host로 인식됩니다.
+
+하지만 지금 FE는:
+- create/join API 성공 응답으로 받은 `userId`를 사용함
+
+그래서 **이미 DB에 넣어둔 김진웅(host) 방에 그냥 join 하면 host가 아니라 새 participant가 됩니다.**
+
+즉 아주 솔직히 말하면:
+
+- **host로 가장 쉽게 테스트하려면 FE에서 새로 `방 만들기`를 하는 게 맞고**
+- **DB seed로 넣어둔 김진웅을 host로 FE에서 바로 접속하는 기능은 아직 따로 없습니다.**
+
+---
+
+**네가 지금 바로 확인하면 좋은 것**
+김진웅 host seed가 맞는지 확인:
+
+```bash
+npx wrangler d1 execute bubblebreak-db --local --command "
+SELECT
+  rooms.code,
+  rooms.host_user_id,
+  users.nickname
+FROM rooms
+INNER JOIN users ON users.id = rooms.host_user_id
+WHERE users.nickname = '김진웅';
+"
+```
+
+이 결과가 예를 들어 이렇게 나오면:
+- `AB12CD`
+- `user-host-kim`
+- `김진웅`
+
+DB상 host는 정상입니다.
+
+---
+
+**짧게 요약**
+- DB 확인은 `SELECT * FROM users;`, `SELECT * FROM rooms;`, `SELECT * FROM room_participants;`
+- 김진웅 host 확인은 `rooms.host_user_id`와 `users.nickname='김진웅'` JOIN으로 보면 됨
+- FE에서 host로 들어가려면 **현재 구조상 그 host의 `userId`를 FE 세션이 들고 있어야 함**
+- 그래서 지금은 **직접 방 만들기 한 사람이 host로 테스트하는 게 가장 쉬움**
+
+원하면 다음 답변에서 제가  
+**“participant 테스트용” / “host 테스트용” 시나리오를 브라우저 기준으로 딱 나눠서** 적어드릴게요.
