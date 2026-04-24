@@ -1,6 +1,6 @@
 import type { Env } from "../lib/db";
 import { jsonResponse } from "../lib/http";
-import { validateInterests, type Interest } from "../lib/interests";
+import { validateInterests, attachInterestIds, type Interest } from "../lib/interests";
 
 // POST /rooms 요청 body 타입
 // 방 생성 시 닉네임과 setup에서 입력한 관심사 배열을 받는다.
@@ -76,7 +76,8 @@ export async function createRoomRoute(request: Request, env: Env) {
     const roomCode = generateRoomCode(); // 유저들이 공유할 방 코드
     const now = new Date().toISOString(); // 생성 시각 통일
     // interests_json 컬럼은 TEXT 타입이라 문자열로 직렬화해서 넣는다.
-    const interestsJson = JSON.stringify(interestsResult.interests);
+    const storedInterests = attachInterestIds(interestsResult.interests);
+    const interestsJson = JSON.stringify(storedInterests);
 
     // --------------------------------------------------
     // 4. users 테이블에 host 생성
@@ -179,3 +180,8 @@ export async function createRoomRoute(request: Request, env: Env) {
     );
   }
 }
+
+// 1. FE가 { text, level }[] 보냄
+// 2. validateInterests() 검증
+// 3. attachInterestIds()로 서버가 ID 부여
+// 4. 그 결과를 interests_json에 저장

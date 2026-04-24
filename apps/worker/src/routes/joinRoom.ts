@@ -1,6 +1,6 @@
 import type { Env } from "../lib/db";
 import { jsonResponse } from "../lib/http";
-import { validateInterests, type Interest } from "../lib/interests";
+import { validateInterests, attachInterestIds, type Interest } from "../lib/interests";
 
 // POST /rooms/:code/join 요청 body 타입
 // 참가 시에도 nickname과 interests를 함께 받는다.
@@ -127,7 +127,9 @@ export async function joinRoomRoute(request: Request, env: Env): Promise<Respons
     const participantId = crypto.randomUUID();
     const now = new Date().toISOString();
     // room_participants.interests_json 컬럼에 저장할 문자열로 직렬화한다.
-    const interestsJson = JSON.stringify(interestsResult.interests);
+    // ID 추가
+    const storedInterests = attachInterestIds(interestsResult.interests);
+    const interestsJson = JSON.stringify(storedInterests);
 
     // users 테이블에 새 임시 사용자 생성
     const insertUser = await env.DB.prepare(

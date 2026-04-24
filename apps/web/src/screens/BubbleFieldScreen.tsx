@@ -660,7 +660,6 @@ export default function BubbleFieldScreen({
                     >
                       <BubbleField
                         interest={bubble.interest}
-                        participantId={bubble.participantId}
                         sizePx={bubble.size}
                         isMine={bubble.isMine}
                         isSelected={isSelected}

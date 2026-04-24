@@ -171,7 +171,7 @@ export default function SetupScreen({
   // - 공백만 있는 문자열은 추가하지 않음
   // - 각 depth 는 최대 3개까지만 허용
   // - text 는 trim 해서 저장
-  // - 아직 기존 BubblePreview 로직이 interest.id 를 사용하므로 id 는 유지
+  // - preview/field 공통 로직이 interest.id 를 사용하므로 draft 단계에서도 id 는 유지
   const addInterest = () => {
     const trimmed = inputValue.trim();
 
@@ -188,7 +188,7 @@ export default function SetupScreen({
     setInterests((prev) => [
       ...prev,
       {
-        id: Date.now().toString(),
+        id: crypto.randomUUID(),
         text: trimmed,
         level: activeLevel,
       },

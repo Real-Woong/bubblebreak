@@ -50,7 +50,7 @@ export type RoomSlot = EmptyRoomSlot | FilledRoomSlot;
 // ============================================================
 export interface CommonInterest {
   id: string;
-  interestId?: string;
+  interestId: string;
   interest: string;
   ownerUserId: string;
   ownerUserName: string;

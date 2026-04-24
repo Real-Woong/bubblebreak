@@ -9,6 +9,15 @@ export type Interest = {
   level: InterestLevel;
 };
 
+// DB에 저장된 관심사 데이터 shape
+// worker는 interests_json 필드에 JSON 문자열로 관심사 데이터를 저장한다.
+// 예: '[{"interestId":"uuid","text":"개발","level":"deep1"}]'
+export type StoredInterest = {
+  interestId: string;
+  text: string;
+  level: InterestLevel;
+};
+
 // 허용 가능한 level 목록
 // 문자열 비교 시 오타를 막기 위해 상수 배열로 관리한다.
 const ALLOWED_LEVELS: InterestLevel[] = ["deep1", "deep2", "deep3"];
@@ -129,4 +138,13 @@ export function validateInterests(value: unknown): ValidationResult {
     ok: true,
     interests: normalized,
   };
+}
+
+// 검증이 끝난 관심사 배열에 서버 기준 interestId를 부여한다.
+export function attachInterestIds(interests: Interest[]): StoredInterest[] {
+  return interests.map((interest) => ({
+    interestId: crypto.randomUUID(),
+    text: interest.text,
+    level: interest.level,
+  }));
 }

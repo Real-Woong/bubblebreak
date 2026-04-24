@@ -6,6 +6,9 @@
 // - 서버 응답 원본 타입은
 // 보통 1:1로 같지 않다.
 // 따라서 API 타입은 따로 두는 것이 좋다.
+
+// 요청 body: ApiInterestInput
+// 서버 저장/조회 결과: ApiStoredInterest
 // ============================================================
 
 // 서버가 허용하는 관심사 depth 값
@@ -13,18 +16,24 @@
 export type ApiInterestLevel = 'deep1' | 'deep2' | 'deep3';
 
 // create / join 요청 body에 들어가는 관심사 1개 shape
-export type ApiInterest = {
+// 거기에 Interest겸 ID추가
+export type ApiInterestInput = {
   text: string;
   level: ApiInterestLevel;
 };
 
+export type ApiStoredInterest = {
+  interestId: string;
+  text: string;
+  level: ApiInterestLevel;
+}
 // ------------------------------------------------------------
 // POST /rooms 요청 타입
 // 방 생성 시 nickname + interests 를 보낸다.
 // ------------------------------------------------------------
 export type CreateRoomRequest = {
   nickname: string;
-  interests: ApiInterest[];
+  interests: ApiInterestInput[];
 };
 
 // create room 성공 응답 타입
@@ -42,7 +51,7 @@ export type CreateRoomResponse = {
 // ------------------------------------------------------------
 export type JoinRoomRequest = {
   nickname: string;
-  interests: ApiInterest[];
+  interests: ApiInterestInput[];
 };
 
 // join room 성공 응답 타입

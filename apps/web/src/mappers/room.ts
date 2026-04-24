@@ -8,9 +8,12 @@
 // - API 응답은 DB 구조에 가깝다.
 // - UI 타입은 화면 렌더링에 가깝다.
 // 둘은 보통 다르기 때문에 중간 변환 단계가 필요하다.
+
+
+// 서버가 저장한 interestId를 그대로 UI Interest.id로 사용한다.
 // ============================================================
 
-import type { ApiRoomParticipant, ApiInterest } from '../types/api';
+import type { ApiRoomParticipant, ApiStoredInterest } from '../types/api';
 import type {
   Interest,
   Participant,
@@ -25,14 +28,14 @@ import type {
 // 따라서 FE에서는 JSON.parse가 필요하다.
 //
 // 주의:
-// 현재 UI Interest 타입은 id 필드가 필요하므로
-// 서버 interest 데이터에 FE용 임시 id를 붙여서 만든다.
+// 현재 UI Interest 타입은 id 필드가 필요하며,
+// 그 값은 FE 임시값이 아니라 서버가 저장한 interestId를 그대로 사용한다.
 // ------------------------------------------------------------
-export function parseInterestsJson(interestsJson: string, userId: string): Interest[] {
-  const parsed = JSON.parse(interestsJson) as ApiInterest[];
+export function parseInterestsJson(interestsJson: string): Interest[] {
+  const parsed = JSON.parse(interestsJson) as ApiStoredInterest[];
 
-  return parsed.map((interest, index) => ({
-    id: `${userId}-${interest.level}-${index}`,
+  return parsed.map((interest) => ({
+    id: interest.interestId,
     text: interest.text,
     level: interest.level,
   }));
@@ -72,7 +75,7 @@ export function mapApiParticipantToParticipant(
   return {
     id: apiParticipant.userId,
     name: apiParticipant.nickname,
-    interests: parseInterestsJson(apiParticipant.interests_json, apiParticipant.userId),
+    interests: parseInterestsJson(apiParticipant.interests_json),
     color,
   };
 }
