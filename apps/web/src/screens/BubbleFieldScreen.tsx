@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle, Lock, LogOut, Sparkles, Users } from 'lucide-react';
+import { CheckCircle, Lock, LogOut, Sparkles, Users, RefreshCw } from 'lucide-react';
 import type { ApiRoomEvent } from '../types/api';
 import type { Interest, Participant, Screen } from '../types/bubble';
 import BubbleField from '../components/BubbleField';
@@ -29,6 +29,11 @@ type FieldBubble = {
 };
 
 const HEADER_HEIGHT = 72;
+// (Demo배포)
+// 데모 배포에서는 자동 polling / heartbeat를 꺼서 request 수를 최소화합니다.
+const DEMO_MODE = true;
+const ROOM_POLLING_INTERVAL_MS = 5000;
+const HEARTBEAT_INTERVAL_MS = 30000;
 const CLUSTER_SPREAD_X = 260;
 const CLUSTER_SPREAD_Y = 190;
 const MIN_BUBBLE_SIZE = 104;
@@ -244,6 +249,7 @@ export default function BubbleFieldScreen({
   const [recommendationInterest, setRecommendationInterest] = useState<string | null>(null);
   const [isFinishing, setIsFinishing] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
@@ -285,10 +291,14 @@ export default function BubbleFieldScreen({
     };
   }, [fieldBubbles]);
 
-  const fetchFieldData = useCallback(async () => {
+  const fetchFieldData = useCallback(async (options?: { showRefreshing?: boolean }) => {
     if (!roomCode) return;
 
     try {
+      if (options?.showRefreshing) {
+        setIsRefreshing(true);
+      }
+
       setError(null);
 
       const [roomResponse, eventsResponse] = await Promise.all([
@@ -316,6 +326,9 @@ export default function BubbleFieldScreen({
       setError(fetchError instanceof Error ? fetchError.message : '버블 필드 데이터를 불러오지 못했어요');
     } finally {
       setIsLoading(false);
+      if (options?.showRefreshing) {
+        setIsRefreshing(false);
+      }
     }
   }, [roomCode, currentUserId, onParticipantsLoaded, onNavigate, setCurrentUserId]);
 
@@ -323,19 +336,39 @@ export default function BubbleFieldScreen({
     setIsLoading(true);
     void fetchFieldData();
 
+    // (Demo배포)
+    // !! polling 주의 !!
+    // 데모 배포에서는 자동 polling을 꺼서 room / event 요청 급증을 막아요.
+    if (DEMO_MODE) {
+      return;
+    }
+
+    // (정식배포)
+    // 버블 필드가 열려 있는 동안만 room / event를 다시 읽어요.
+    // 요청 수가 빠르게 늘 수 있어서 5초 간격으로 조절했습니다.
     const intervalId = window.setInterval(() => {
       void fetchFieldData();
-    }, 3000);
+    }, ROOM_POLLING_INTERVAL_MS);
 
     return () => window.clearInterval(intervalId);
   }, [fetchFieldData]);
 
   useEffect(() => {
+    // (Demo배포)
+    // !! heartbeat 주의 !!
+    // 데모 배포에서는 heartbeat도 멈춰서 불필요한 주기 요청을 막아요.
+    if (DEMO_MODE) {
+      return;
+    }
+
+    // (정식배포)
+    // 이 신호는 "아직 이 사용자가 페이지를 보고 있어요"에 가까운 생존 신호예요.
+    // polling과 별개로 세션 정리 기준이 되므로 너무 짧게 보내지 않도록 30초로 둡니다.
     const heartbeatInterval = window.setInterval(() => {
       void heartbeat(roomCode).catch(() => {
         // no-op
       });
-    }, 25000);
+    }, HEARTBEAT_INTERVAL_MS);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
@@ -590,6 +623,20 @@ export default function BubbleFieldScreen({
           </div>
 
           <div className="absolute right-5 top-1/2 -translate-y-1/2 flex items-center gap-2 text-right">
+            {DEMO_MODE && (
+              <button
+                onClick={() => {
+                  void fetchFieldData({ showRefreshing: true });
+                }}
+                disabled={isRefreshing}
+                className="h-10 px-3 bg-white text-amber-700 rounded-full border border-amber-200 shadow-sm active:scale-95 transition-transform disabled:opacity-50 flex items-center gap-2"
+              >
+                <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <span className="text-xs font-semibold">
+                  {isRefreshing ? '갱신 중' : '수동 갱신'}
+                </span>
+              </button>
+            )}
             <Users className="w-4 h-4 text-purple-500" />
             <span className="text-sm font-medium text-purple-600">{participants.length}</span>
           </div>

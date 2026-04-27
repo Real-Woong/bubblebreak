@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Copy, LogOut, Users, ChevronRight } from 'lucide-react';
+import { Check, Copy, LogOut, Users, ChevronRight, RefreshCw } from 'lucide-react';
 import type { Screen } from '../types/bubble';
 import { getRoom, getRoomMe, leaveRoom, readyRoom, startRoom } from '../api/room';
 import { mapApiParticipantsToRoomSlots } from '../mappers/room';
+
+// (Demo배포)
+// 데모 배포에서는 자동 polling을 꺼서 request 수를 최소화합니다.
+const DEMO_MODE = true;
+const ROOM_POLLING_INTERVAL_MS = 5000;
 
 export default function LobbyScreen({
   roomCode,
@@ -26,11 +31,16 @@ export default function LobbyScreen({
   const [isReadySubmitting, setIsReadySubmitting] = useState(false);
   const [isStartSubmitting, setIsStartSubmitting] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const fetchRoom = async () => {
+  const fetchRoom = async (options?: { showRefreshing?: boolean }) => {
     if (!roomCode) return;
 
     try {
+      if (options?.showRefreshing) {
+        setIsRefreshing(true);
+      }
+
       setError(null);
 
       if (!currentUserId) {
@@ -54,6 +64,9 @@ export default function LobbyScreen({
       setError(fetchError instanceof Error ? fetchError.message : '방 정보를 불러오지 못했어요');
     } finally {
       setIsLoading(false);
+      if (options?.showRefreshing) {
+        setIsRefreshing(false);
+      }
     }
   };
 
@@ -61,9 +74,19 @@ export default function LobbyScreen({
     setIsLoading(true);
     void fetchRoom();
 
+    // (Demo배포)
+    // !! polling 주의 !!
+    // 데모 배포에서는 자동 polling을 꺼서 request 수를 최대한 아껴요.
+    if (DEMO_MODE) {
+      return;
+    }
+
+    // (정식배포)
+    // 로비 화면이 열려 있는 동안만 주기적으로 room 상태를 다시 읽어요.
+    // 무료 한도 절약을 위해 너무 짧지 않게 5초 간격으로 둡니다.
     const intervalId = window.setInterval(() => {
       void fetchRoom();
-    }, 3000);
+    }, ROOM_POLLING_INTERVAL_MS);
 
     return () => window.clearInterval(intervalId);
   }, [roomCode, currentUserId]);
@@ -161,6 +184,24 @@ export default function LobbyScreen({
         {error && (
           <div className="bg-red-50 border border-red-100 rounded-2xl p-4 mb-4 text-center text-sm text-red-500">
             {error}
+          </div>
+        )}
+
+        {DEMO_MODE && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4">
+            <p className="text-xs font-semibold text-amber-700 mb-2">
+              데모 모드: 자동 새로고침이 꺼져 있어요
+            </p>
+            <button
+              onClick={() => {
+                void fetchRoom({ showRefreshing: true });
+              }}
+              disabled={isRefreshing}
+              className="w-full bg-white text-amber-700 py-3 rounded-full font-medium text-sm border border-amber-200 active:scale-95 transition-transform disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {isRefreshing ? '새로고침 중...' : '참여자 상태 수동 새로고침'}
+            </button>
           </div>
         )}
 
