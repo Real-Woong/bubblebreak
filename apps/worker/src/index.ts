@@ -17,15 +17,41 @@ import { getRoomMeRoute } from "./routes/getRoomMe";
 import { runRoomCleanup } from "./lib/cleanup";
 import type { Env } from "./lib/db";
 
-const ALLOWED_ORIGINS = new Set([
+const DEFAULT_ALLOWED_ORIGINS = [
   "http://localhost:3000",
   "http://127.0.0.1:3000",
   "http://localhost:5173",
   "http://127.0.0.1:5173",
-]);
+];
+const DEFAULT_CORS_ORIGIN = "http://localhost:3000";
 
-function getCorsHeaders(origin: string | null) {
-  const allowOrigin = origin && ALLOWED_ORIGINS.has(origin) ? origin : "http://localhost:3000";
+function getAllowedOrigins(env: Env) {
+  const configuredOrigins = env.CORS_ALLOWED_ORIGINS?.split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  const origins = configuredOrigins?.length ? configuredOrigins : DEFAULT_ALLOWED_ORIGINS;
+  return new Set(origins);
+}
+
+function getDefaultOrigin(env: Env, allowedOrigins: Set<string>) {
+  const configuredOrigin = env.CORS_DEFAULT_ORIGIN?.trim();
+
+  if (configuredOrigin && allowedOrigins.has(configuredOrigin)) {
+    return configuredOrigin;
+  }
+
+  if (allowedOrigins.has(DEFAULT_CORS_ORIGIN)) {
+    return DEFAULT_CORS_ORIGIN;
+  }
+
+  return allowedOrigins.values().next().value ?? DEFAULT_CORS_ORIGIN;
+}
+
+function getCorsHeaders(origin: string | null, env: Env) {
+  const allowedOrigins = getAllowedOrigins(env);
+  const defaultOrigin = getDefaultOrigin(env, allowedOrigins);
+  const allowOrigin = origin && allowedOrigins.has(origin) ? origin : defaultOrigin;
 
   return {
     "Access-Control-Allow-Origin": allowOrigin,
@@ -46,7 +72,7 @@ export default {
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
-        headers: getCorsHeaders(requestOrigin),
+        headers: getCorsHeaders(requestOrigin, env),
       });
     }
 
@@ -88,7 +114,7 @@ export default {
       response = await env.ASSETS.fetch(request);
     }
 
-    for (const [key, value] of Object.entries(getCorsHeaders(requestOrigin))) {
+    for (const [key, value] of Object.entries(getCorsHeaders(requestOrigin, env))) {
       response.headers.set(key, value);
     }
 

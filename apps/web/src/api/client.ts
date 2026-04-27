@@ -8,13 +8,14 @@
 // -------------------------------------------
 
 import type { ApiErrorResponse } from "../types/api";
+import { appEnv } from "../config/env";
 
 // -------------------------------------------
 // 개발환경 / 배포환경에서 바뀔 수 있는 API주소
 // 나중에 .env로 빼기 쉽게 const로 분리
 // Vite 환경 변수는 VITE_ 접두사가 필요합니다
 // -------------------------------------------
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8787';
+const API_BASE_URL = appEnv.apiBaseUrl;
 
 // -------------------------------------------
 // 공통 요청 옵션 타입

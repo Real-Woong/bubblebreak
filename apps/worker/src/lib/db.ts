@@ -34,4 +34,6 @@ export type Env = {
   ASSETS: {
     fetch(input: Request | URL | string): Promise<Response>;
   };
+  CORS_ALLOWED_ORIGINS?: string;
+  CORS_DEFAULT_ORIGIN?: string;
 };

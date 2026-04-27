@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Check, Copy, LogOut, Users, ChevronRight, RefreshCw } from 'lucide-react';
+import { appEnv } from '../config/env';
 import type { Screen } from '../types/bubble';
 import { getRoom, getRoomMe, leaveRoom, readyRoom, startRoom } from '../api/room';
 import { mapApiParticipantsToRoomSlots } from '../mappers/room';
 
 // (Demo배포)
 // 데모 배포에서는 자동 polling을 꺼서 request 수를 최소화합니다.
-const DEMO_MODE = true;
-const ROOM_POLLING_INTERVAL_MS = 5000;
+const DEMO_MODE = appEnv.demoMode;
+const ROOM_POLLING_INTERVAL_MS = appEnv.lobbyRoomPollingIntervalMs;
 
 export default function LobbyScreen({
   roomCode,

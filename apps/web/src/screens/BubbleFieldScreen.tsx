@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle, Lock, LogOut, Sparkles, Users, RefreshCw } from 'lucide-react';
+import { appEnv } from '../config/env';
 import type { ApiRoomEvent } from '../types/api';
 import type { Interest, Participant, Screen } from '../types/bubble';
 import BubbleField from '../components/BubbleField';
@@ -31,9 +32,9 @@ type FieldBubble = {
 const HEADER_HEIGHT = 72;
 // (Demo배포)
 // 데모 배포에서는 자동 polling / heartbeat를 꺼서 request 수를 최소화합니다.
-const DEMO_MODE = true;
-const ROOM_POLLING_INTERVAL_MS = 5000;
-const HEARTBEAT_INTERVAL_MS = 30000;
+const DEMO_MODE = appEnv.demoMode;
+const ROOM_POLLING_INTERVAL_MS = appEnv.fieldRoomPollingIntervalMs;
+const HEARTBEAT_INTERVAL_MS = appEnv.fieldHeartbeatIntervalMs;
 const CLUSTER_SPREAD_X = 260;
 const CLUSTER_SPREAD_Y = 190;
 const MIN_BUBBLE_SIZE = 104;
