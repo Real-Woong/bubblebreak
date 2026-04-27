@@ -8,7 +8,9 @@ export function buildCommonInterests(
   if (!me) return [];
 
   const myInterestMap = new Map(
-    me.interests.map((interest) => [interest.text.trim().toLowerCase(), interest])
+    me.interests
+      .filter((interest) => interest.level !== 'deep3' && interest.text !== '비공개 관심사')
+      .map((interest) => [interest.text.trim().toLowerCase(), interest])
   );
 
   const result: CommonInterest[] = [];
@@ -17,6 +19,10 @@ export function buildCommonInterests(
     .filter((participant) => participant.id !== currentUserId)
     .forEach((participant) => {
       participant.interests.forEach((interest) => {
+        if (interest.level === 'deep3' || interest.text === '비공개 관심사') {
+          return;
+        }
+
         const key = interest.text.trim().toLowerCase();
         const matchedMine = myInterestMap.get(key);
 

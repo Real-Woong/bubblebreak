@@ -63,6 +63,11 @@ build/
 # =========================
 coverage/
 
-# Figma export (너가 이미 넣어둔거 유지)
+# Figma export
 BubbleBreak - Figma Make.html
 BubbleBreak – Figma Make.html
+
+# 부가 공부파일
+DB확인용 명령어.txt
+Mock_DB_추가_명령어.txt
+bubblebreak_map_work.html

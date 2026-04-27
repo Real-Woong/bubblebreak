@@ -43,6 +43,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
             headers: {
                 'Content-Type': 'application/json',
             },
+            credentials: 'include',
             // GET 요청에는 body를 보내지 않는다.
             body: body ? JSON.stringify(body) : undefined,
         });

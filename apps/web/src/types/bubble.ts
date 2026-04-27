@@ -1,7 +1,7 @@
 // ============================================================
 // 화면 라우팅
 // ============================================================
-export type Screen = 'entry' | 'setup' | 'lobby' | 'field' | 'commonGround';
+export type Screen = 'entry' | 'setup' | 'lobby' | 'field' | 'commonGround' | 'recommendation';
 
 // ============================================================
 // 관심사 / 버블 깊이

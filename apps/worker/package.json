@@ -3,7 +3,9 @@
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "build:web": "yarn --cwd ../web build",
+    "deploy": "wrangler deploy",
+    "deploy:with-web": "yarn build:web && wrangler deploy"
   },
   "dependencies": {
     "hono": "^4.7.2"

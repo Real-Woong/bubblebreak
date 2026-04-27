@@ -31,4 +31,7 @@ export type DbLike = {
 // 현재는 DB 하나만 쓰고 있지만, 이후 KV/R2 등이 추가되면 여기 늘어날 수 있다.
 export type Env = {
   DB: DbLike;
+  ASSETS: {
+    fetch(input: Request | URL | string): Promise<Response>;
+  };
 };

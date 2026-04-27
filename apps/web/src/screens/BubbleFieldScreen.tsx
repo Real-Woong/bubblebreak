@@ -1,36 +1,22 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Users, Sparkles, CheckCircle, Lock } from 'lucide-react';
-import type { Interest, Participant } from '../types/bubble';
+import { CheckCircle, Lock, LogOut, Sparkles, Users } from 'lucide-react';
+import type { ApiRoomEvent } from '../types/api';
+import type { Interest, Participant, Screen } from '../types/bubble';
 import BubbleField from '../components/BubbleField';
-import { getRoom } from '../api/room';
+import {
+  approveDeep3Unlock,
+  finishRoom,
+  getRoom,
+  getRoomEvents,
+  getRoomMe,
+  heartbeat,
+  leaveRoom,
+  popBubble,
+  rejectDeep3Unlock,
+  requestDeep3Unlock
+} from '../api/room';
 import { mapApiParticipantsToParticipants } from '../mappers/room';
 
-// ============================================================
-// BubbleFieldScreen
-// Lobby 이후 진입하는 메인 인터랙션 화면
-//
-// 역할:
-// - 현재는 App.tsx 에서 주입받은 임시 participants 데이터를 기반으로 버블을 렌더링
-// - 이후에는 room_participants API 응답 데이터를 이 화면에서 사용하도록 전환 예정
-// - camera(가상 카메라)를 이동시키며 월드 탐색
-// - 다른 유저의 관심사를 터치하여 상호작용
-//
-// 핵심 구조:
-// 현재: App의 mock/임시 participants → interests → FieldBubble → 렌더링
-// 이후: API(room_participants) → parsing(interests_json) → FieldBubble → 렌더링
-// world 좌표 → camera 보정 → screen 좌표
-// ============================================================
-
-// ============================================================
-// 타입 정의
-// ============================================================
-
-// FieldBubble: 실제 화면에 렌더링되는 버블 단위
-// - interest: 원본 데이터
-// - participant 정보: 소유자
-// - worldX/Y: 월드 좌표
-// - size: 크기
-// - isMine: 내 버블 여부
 type FieldBubble = {
   id: string;
   interest: Interest;
@@ -42,9 +28,6 @@ type FieldBubble = {
   isMine: boolean;
 };
 
-// 레이아웃 관련 상수 정의
-// 버블 간 거리, 반경, 최소 간격 등
-// ============================================================
 const HEADER_HEIGHT = 72;
 const CLUSTER_SPREAD_X = 260;
 const CLUSTER_SPREAD_Y = 190;
@@ -57,18 +40,11 @@ const LEVEL_RADIUS: Record<Interest['level'], number> = {
   deep3: 320
 };
 
-// ============================================================
-// 레이아웃 헬퍼 함수
-// ============================================================
-
-// seed 기반 랜덤 → 동일 데이터에서 항상 같은 배치 보장
 function seededRandom(seed: number) {
   const x = Math.sin(seed) * 10000;
   return x - Math.floor(x);
 }
 
-
-// 두 버블이 겹치는지 계산
 function bubblesOverlap(
   a: { x: number; y: number; size: number },
   b: { x: number; y: number; size: number }
@@ -77,8 +53,6 @@ function bubblesOverlap(
   return distance < a.size / 2 + b.size / 2 + MIN_BUBBLE_GAP;
 }
 
-// 겹치지 않는 위치 탐색 알고리즘
-// 반경을 점점 넓히며 빈 공간 찾기
 function findNonOverlappingPosition(
   center: { x: number; y: number },
   size: number,
@@ -108,14 +82,10 @@ function findNonOverlappingPosition(
   return null;
 }
 
-// 핵심 레이아웃 생성 함수
-// participants → bubble 좌표 계산
-// 클러스터 기반 + 충돌 회피
 function buildWorldLayout(participants: Participant[], currentUserId: string) {
   const participantCount = Math.max(participants.length, 1);
   const clusters: Record<string, { x: number; y: number }> = {};
 
-  // participant 중심 좌표 계산 (원형 배치)
   participants.forEach((participant, index) => {
     const angle = (index / participantCount) * Math.PI * 2 - Math.PI / 2;
     const ellipseRadiusX = participantCount <= 2 ? 180 : CLUSTER_SPREAD_X;
@@ -169,7 +139,6 @@ function buildWorldLayout(participants: Participant[], currentUserId: string) {
       }
 
       placedBubbles.push(placedBubble);
-      // 최종 bubble 객체 생성
       bubbles.push({
         id: `${participant.id}-${interest.id}`,
         interest,
@@ -186,11 +155,9 @@ function buildWorldLayout(participants: Participant[], currentUserId: string) {
   return bubbles;
 }
 
-// 버블 애니메이션 값 생성 (부유, 회전 등)
 function getBubbleMotionValues(bubble: FieldBubble, index: number) {
   const floatDuration = 6.8 + seededRandom(index * 37 + bubble.participantId.length * 19) * 2.6;
   const swayDuration = 5.4 + seededRandom(index * 41 + bubble.participantName.length * 11) * 1.8;
-  const shimmerDuration = 6.2 + seededRandom(index * 83 + bubble.size * 7) * 2.2;
   const floatX = Math.round(8 + seededRandom(index * 71 + bubble.size) * 10);
   const floatY = Math.round(12 + seededRandom(index * 89 + bubble.size) * 14);
   const rotateDeg = (1.8 + seededRandom(index * 61 + bubble.size * 3) * 2.4).toFixed(2);
@@ -199,7 +166,6 @@ function getBubbleMotionValues(bubble: FieldBubble, index: number) {
   return {
     floatDuration,
     swayDuration,
-    shimmerDuration,
     floatX,
     floatY,
     rotateDeg,
@@ -207,40 +173,78 @@ function getBubbleMotionValues(bubble: FieldBubble, index: number) {
   };
 }
 
-// ============================================================
-// 화면 컴포넌트
-// ============================================================
+function getEventLabel(event: ApiRoomEvent, participants: Participant[], currentUserId: string) {
+  const source = participants.find((participant) => participant.id === event.sourceUserId)?.name ?? '누군가';
+  const target = participants.find((participant) => participant.id === event.targetUserId)?.name ?? '상대방';
+  const actorIsMe = event.sourceUserId === currentUserId;
+
+  if (event.eventType === 'pop') {
+    return actorIsMe
+      ? `${target}의 버블을 확인했어요`
+      : `${source}가 내 버블에 반응했어요`;
+  }
+
+  if (event.status === 'pending') {
+    return actorIsMe
+      ? `${target}에게 private 관심사 요청을 보냈어요`
+      : `${source}가 내 private 관심사를 요청했어요`;
+  }
+
+  if (event.status === 'accepted') {
+    return actorIsMe ? `${target}가 요청을 수락했어요` : `${source}의 요청을 수락했어요`;
+  }
+
+  return actorIsMe ? `${target}가 요청을 거절했어요` : `${source}의 요청을 거절했어요`;
+}
+
+function findInterestText(participants: Participant[], userId: string, interestId: string) {
+  const participant = participants.find((item) => item.id === userId);
+  return participant?.interests.find((interest) => interest.id === interestId)?.text ?? '이 관심사';
+}
+
 export default function BubbleFieldScreen({
   roomCode,
   currentUserId,
+  setCurrentUserId,
   onParticipantsLoaded,
   onShowCommonGround,
   selectedBubble,
-  setSelectedBubble
+  setSelectedBubble,
+  onNavigate,
+  onResetSession
 }: {
   roomCode: string;
   currentUserId: string;
+  setCurrentUserId: (userId: string) => void;
   onParticipantsLoaded: (participants: Participant[]) => void;
   onShowCommonGround: () => void;
   selectedBubble: Interest | null;
   setSelectedBubble: (bubble: Interest | null) => void;
+  onNavigate: (screen: Screen) => void;
+  onResetSession: () => void;
 }) {
-  // --------------------------------------------
-  // UI 상태 관리 (선택, 토스트, 모달 등)
-  // --------------------------------------------
   const [showNotification, setShowNotification] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState('관심사를 확인했어요!');
   const [showPopConfirm, setShowPopConfirm] = useState(false);
   const [selectedParticipant, setSelectedParticipant] = useState<Participant | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [camera, setCamera] = useState({ x: 0, y: 0 });
-  const [viewportSize, setViewportSize] = useState({ width: window.innerWidth, height: window.innerHeight - HEADER_HEIGHT });
+  const [viewportSize, setViewportSize] = useState({
+    width: window.innerWidth,
+    height: window.innerHeight - HEADER_HEIGHT
+  });
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [events, setEvents] = useState<ApiRoomEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [roomStatus, setRoomStatus] = useState<string>('');
+  const [hostUserId, setHostUserId] = useState('');
+  const [isActionSubmitting, setIsActionSubmitting] = useState(false);
+  const [isActivityOpen, setIsActivityOpen] = useState(false);
+  const [recommendationInterest, setRecommendationInterest] = useState<string | null>(null);
+  const [isFinishing, setIsFinishing] = useState(false);
+  const [isLeaving, setIsLeaving] = useState(false);
 
-  // --------------------------------------------
-  // 드래그 및 포인터 상태 관리
-  // --------------------------------------------
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
   const dragMovedRef = useRef(false);
@@ -249,10 +253,14 @@ export default function BubbleFieldScreen({
   const panStartXRef = useRef(0);
   const panStartYRef = useRef(0);
   const lastCameraLayoutKeyRef = useRef('');
+  const handledAcceptedEventsRef = useRef<Set<string>>(new Set());
 
-  // --------------------------------------------
-  // 드래그 상태 초기화
-  // --------------------------------------------
+  const isHost = hostUserId === currentUserId;
+
+  const fieldBubbles = useMemo(() => {
+    return buildWorldLayout(participants, currentUserId);
+  }, [participants, currentUserId]);
+
   const resetDragState = () => {
     window.setTimeout(() => {
       dragMovedRef.current = false;
@@ -261,60 +269,6 @@ export default function BubbleFieldScreen({
     }, 0);
   };
 
-  // --------------------------------------------
-  // 현재 데이터 주입 방식
-  // - 지금은 App.tsx 에서 participants / currentUserId 를 props로 내려받는다.
-  // - 즉, 아직 이 화면 자체가 서버 fetch를 하지는 않는다.
-  //
-  // TODO (API 연결 시):
-  // 1. roomCode 기준으로 room_participants 조회
-  // 2. interests_json 문자열을 Interest[] 로 파싱
-  // 3. Participant 화면 타입으로 매핑
-  // 4. 그 결과를 fieldBubbles 생성의 입력값으로 사용
-  // --------------------------------------------
-
-  // TODO (API 연결 예정 위치)
-  // 현재는 props 기반이라 실제 fetch/useEffect를 돌리지 않는다.
-  // 백엔드 준비 후 이 자리에 아래와 같은 흐름이 들어올 예정:
-  //
-  // useEffect(() => {
-  //   // 1. GET /rooms/:code 또는 field 전용 endpoint 호출
-  //   // 2. room_participants 응답 수신
-  //   // 3. interests_json 파싱
-  //   // 4. local state(setParticipantsFromApi)에 저장
-  // }, [roomCode]);
-  //
-  // 그 이후 buildWorldLayout의 입력을 props participants가 아니라
-  // API에서 가공한 participants 상태로 바꾸면 된다.
-
-  // 실제 room participants를 API에서 읽어와 local state로 관리한다.
-  const fieldBubbles = useMemo(() => {
-    return buildWorldLayout(participants, currentUserId);
-  }, [participants, currentUserId]);
-
-  // room 조회 후 BubbleField 렌더링용 participants 생성
-  useEffect(() => {
-    const fetchParticipants = async () => {
-      if (!roomCode) return;
-
-      try {
-        setIsLoading(true);
-        setError(null);
-        const response = await getRoom(roomCode);
-        const mappedParticipants = mapApiParticipantsToParticipants(response.participants);
-        setParticipants(mappedParticipants);
-        onParticipantsLoaded(mappedParticipants);
-      } catch (fetchError) {
-        setError(fetchError instanceof Error ? fetchError.message : '버블 필드 데이터를 불러오지 못했어요');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    void fetchParticipants();
-  }, [roomCode, onParticipantsLoaded]);
-
-  // 전체 버블을 중앙에 배치하는 초기 카메라 계산
   const getInitialCamera = useCallback((width: number, height: number) => {
     if (fieldBubbles.length === 0) {
       return { x: 0, y: 0 };
@@ -331,7 +285,101 @@ export default function BubbleFieldScreen({
     };
   }, [fieldBubbles]);
 
-  // viewport 크기 추적 (resize 대응)
+  const fetchFieldData = useCallback(async () => {
+    if (!roomCode) return;
+
+    try {
+      setError(null);
+
+      const [roomResponse, eventsResponse] = await Promise.all([
+        getRoom(roomCode),
+        getRoomEvents(roomCode)
+      ]);
+
+      if (!currentUserId) {
+        const me = await getRoomMe(roomCode);
+        setCurrentUserId(me.me.userId);
+      }
+
+      const mappedParticipants = mapApiParticipantsToParticipants(roomResponse.participants);
+
+      setParticipants(mappedParticipants);
+      onParticipantsLoaded(mappedParticipants);
+      setEvents(eventsResponse.events);
+      setRoomStatus(roomResponse.room.status);
+      setHostUserId(roomResponse.room.hostUserId);
+
+      if (roomResponse.room.status === 'finished') {
+        onNavigate('recommendation');
+      }
+    } catch (fetchError) {
+      setError(fetchError instanceof Error ? fetchError.message : '버블 필드 데이터를 불러오지 못했어요');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [roomCode, currentUserId, onParticipantsLoaded, onNavigate, setCurrentUserId]);
+
+  useEffect(() => {
+    setIsLoading(true);
+    void fetchFieldData();
+
+    const intervalId = window.setInterval(() => {
+      void fetchFieldData();
+    }, 3000);
+
+    return () => window.clearInterval(intervalId);
+  }, [fetchFieldData]);
+
+  useEffect(() => {
+    const heartbeatInterval = window.setInterval(() => {
+      void heartbeat(roomCode).catch(() => {
+        // no-op
+      });
+    }, 25000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        void heartbeat(roomCode).catch(() => {
+          // no-op
+        });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(heartbeatInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [roomCode]);
+
+  useEffect(() => {
+    const acceptedEvents = events.filter(
+      (event) =>
+        event.eventType === 'deep3_request' &&
+        event.sourceUserId === currentUserId &&
+        event.status === 'accepted' &&
+        !handledAcceptedEventsRef.current.has(event.id)
+    );
+
+    acceptedEvents.forEach((event) => {
+      handledAcceptedEventsRef.current.add(event.id);
+      setNotificationMessage('private 관심사 요청이 수락됐어요!');
+      setShowNotification(true);
+      setRecommendationInterest(findInterestText(participants, event.targetUserId, event.interestId));
+    });
+  }, [events, currentUserId, participants]);
+
+  useEffect(() => {
+    if (!showNotification) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setShowNotification(false);
+    }, 2600);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [showNotification]);
+
   useLayoutEffect(() => {
     const updateViewport = () => {
       setViewportSize({ width: window.innerWidth, height: window.innerHeight - HEADER_HEIGHT });
@@ -345,7 +393,6 @@ export default function BubbleFieldScreen({
     };
   }, []);
 
-  // 레이아웃 변경 시 camera 재정렬
   useEffect(() => {
     if (viewportSize.width === 0 || viewportSize.height === 0) return;
     if (isDragging) return;
@@ -366,7 +413,6 @@ export default function BubbleFieldScreen({
     setCamera(getInitialCamera(viewportSize.width, viewportSize.height));
   }, [fieldBubbles, getInitialCamera, viewportSize, isDragging]);
 
-  // 포인터 기반 카메라 이동 처리
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     const container = scrollContainerRef.current;
     if (!container) return;
@@ -389,7 +435,6 @@ export default function BubbleFieldScreen({
       container.setPointerCapture(e.pointerId);
     }
   };
-
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (activePointerIdRef.current !== e.pointerId) return;
@@ -423,12 +468,8 @@ export default function BubbleFieldScreen({
     resetDragState();
   };
 
-  // 버블 클릭 처리 (상호작용 시작)
-  // 현재는 프론트 내부 상태만 변경한다.
-  // TODO: API 연결 후에는 공개 처리 / 요청 전송 등의 서버 액션이 이 흐름에 연결될 수 있다.
   const handleBubbleTap = (bubble: FieldBubble) => {
-    if (dragMovedRef.current) return;
-    if (bubble.isMine) return;
+    if (dragMovedRef.current || bubble.isMine) return;
     setSelectedParticipant(
       participants.find((participant) => participant.id === bubble.participantId) ?? null
     );
@@ -436,104 +477,111 @@ export default function BubbleFieldScreen({
     setShowPopConfirm(true);
   };
 
-  // 버블 터뜨리기 로직 (알림 포함)
-  // 현재는 mock 상호작용만 처리한다.
-  // TODO: API 연결 후에는 여기서 공개 처리, 요청 생성, 상태 동기화 등을 호출할 수 있다.
-  const handlePop = () => {
-    setShowPopConfirm(false);
-    setShowNotification(true);
-    setTimeout(() => {
-      setShowNotification(false);
+  const handlePop = async () => {
+    if (!selectedParticipant || !selectedBubble || isActionSubmitting) return;
+
+    try {
+      setIsActionSubmitting(true);
+
+      if (selectedBubble.level === 'deep3') {
+        await requestDeep3Unlock(roomCode, {
+          targetUserId: selectedParticipant.id,
+          interestId: selectedBubble.id
+        });
+        setNotificationMessage(`${selectedParticipant.name}에게 확인 요청을 보냈어요!`);
+      } else {
+        await popBubble(roomCode, {
+          targetUserId: selectedParticipant.id,
+          interestId: selectedBubble.id
+        });
+        setNotificationMessage(`${selectedParticipant.name}의 관심사를 확인했어요!`);
+        setRecommendationInterest(selectedBubble.text);
+      }
+
+      setShowPopConfirm(false);
+      setShowNotification(true);
       setSelectedBubble(null);
       setSelectedParticipant(null);
-    }, 3000);
+      await fetchFieldData();
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : '상호작용 처리에 실패했어요');
+    } finally {
+      setIsActionSubmitting(false);
+    }
   };
 
-  // ==============================
-  // 렌더링 시작
-  // ==============================
+  const handleApprove = async (eventId: string) => {
+    try {
+      await approveDeep3Unlock(roomCode, eventId);
+      setNotificationMessage('요청을 수락했어요');
+      setShowNotification(true);
+      await fetchFieldData();
+    } catch (approveError) {
+      setError(approveError instanceof Error ? approveError.message : '수락 처리에 실패했어요');
+    }
+  };
+
+  const handleReject = async (eventId: string) => {
+    try {
+      await rejectDeep3Unlock(roomCode, eventId);
+      setNotificationMessage('요청을 거절했어요');
+      setShowNotification(true);
+      await fetchFieldData();
+    } catch (rejectError) {
+      setError(rejectError instanceof Error ? rejectError.message : '거절 처리에 실패했어요');
+    }
+  };
+
+  const handleFinish = async () => {
+    try {
+      setIsFinishing(true);
+      await finishRoom(roomCode);
+      onNavigate('recommendation');
+    } catch (finishError) {
+      setError(finishError instanceof Error ? finishError.message : '완료 처리에 실패했어요');
+    } finally {
+      setIsFinishing(false);
+    }
+  };
+
+  const handleLeave = async () => {
+    try {
+      setIsLeaving(true);
+      await leaveRoom(roomCode);
+      onResetSession();
+    } catch (leaveError) {
+      setError(leaveError instanceof Error ? leaveError.message : '방 나가기에 실패했어요');
+    } finally {
+      setIsLeaving(false);
+    }
+  };
+
   return (
     <div
       className="h-screen w-screen overflow-hidden fixed inset-0 bg-gradient-to-b from-purple-50/30 to-white select-none"
-      style={{
-        overscrollBehavior: 'none'
-      }}
+      style={{ overscrollBehavior: 'none' }}
     >
       <style>{`
         @keyframes bubbleDrift {
-          0% {
-            transform: translate3d(0px, 0px, 0);
-          }
-          25% {
-            transform: translate3d(var(--float-x), calc(var(--float-y) * -0.55), 0);
-          }
-          50% {
-            transform: translate3d(calc(var(--float-x) * -0.35), calc(var(--float-y) * -1), 0);
-          }
-          75% {
-            transform: translate3d(calc(var(--float-x) * -1), calc(var(--float-y) * -0.2), 0);
-          }
-          100% {
-            transform: translate3d(0px, 0px, 0);
-          }
+          0% { transform: translate3d(0px, 0px, 0); }
+          25% { transform: translate3d(var(--float-x), calc(var(--float-y) * -0.55), 0); }
+          50% { transform: translate3d(calc(var(--float-x) * -0.35), calc(var(--float-y) * -1), 0); }
+          75% { transform: translate3d(calc(var(--float-x) * -1), calc(var(--float-y) * -0.2), 0); }
+          100% { transform: translate3d(0px, 0px, 0); }
         }
 
         @keyframes bubbleSway {
-          0% {
-            transform: rotate(0deg) scale(1, 1);
-          }
-          25% {
-            transform: rotate(calc(var(--rotate-deg) * -1deg)) scale(1.016, 0.992);
-          }
-          50% {
-            transform: rotate(calc(var(--rotate-deg) * 0.6deg)) scale(1.026, 0.986);
-          }
-          75% {
-            transform: rotate(calc(var(--rotate-deg) * -0.5deg)) scale(1.012, 0.996);
-          }
-          100% {
-            transform: rotate(0deg) scale(1, 1);
-          }
-        }
-
-        @keyframes bubbleInnerDrift {
-          0% {
-            transform: translate3d(0px, 0px, 0) scale(1);
-            opacity: 0.86;
-          }
-          50% {
-            transform: translate3d(5px, -7px, 0) scale(1.05);
-            opacity: 1;
-          }
-          100% {
-            transform: translate3d(0px, 0px, 0) scale(1);
-            opacity: 0.86;
-          }
-        }
-
-        @keyframes bubbleGlossSweep {
-          0% {
-            transform: translate3d(0px, 0px, 0) rotate(-18deg);
-            opacity: 0.24;
-          }
-          50% {
-            transform: translate3d(7px, -9px, 0) rotate(-13deg);
-            opacity: 0.42;
-          }
-          100% {
-            transform: translate3d(0px, 0px, 0) rotate(-18deg);
-            opacity: 0.24;
-          }
+          0% { transform: rotate(0deg) scale(1, 1); }
+          25% { transform: rotate(calc(var(--rotate-deg) * -1deg)) scale(1.016, 0.992); }
+          50% { transform: rotate(calc(var(--rotate-deg) * 0.6deg)) scale(1.026, 0.986); }
+          75% { transform: rotate(calc(var(--rotate-deg) * -0.5deg)) scale(1.012, 0.996); }
+          100% { transform: rotate(0deg) scale(1, 1); }
         }
       `}</style>
-      {/* 상단 헤더: 제목 + 참가자 수 */}
+
       <div
         className="fixed top-0 left-0 right-0 z-40 bg-white/92 backdrop-blur-md border-b border-purple-100"
-        style={{
-          height: `${HEADER_HEIGHT}px`,
-          width: '100%',
-          boxSizing: 'border-box'
-        }}
+        style={{ height: `${HEADER_HEIGHT}px`, width: '100%', boxSizing: 'border-box' }}
       >
         <div className="relative flex items-center h-full px-5 w-full">
           <div className="min-w-0">
@@ -548,15 +596,7 @@ export default function BubbleFieldScreen({
         </div>
       </div>
 
-      {/* 버블 필드 영역 (카메라 이동 대상) */}
-      <div
-        style={{
-          marginTop: HEADER_HEIGHT,
-          height: `calc(100vh - ${HEADER_HEIGHT}px)`,
-          // background: 'yellow',
-          position: 'relative'
-        }}
-      >
+      <div style={{ marginTop: HEADER_HEIGHT, height: `calc(100vh - ${HEADER_HEIGHT}px)`, position: 'relative' }}>
         <div className="relative h-full w-full overflow-hidden">
           <div
             ref={scrollContainerRef}
@@ -576,16 +616,10 @@ export default function BubbleFieldScreen({
               outline: 'none',
               userSelect: 'none',
               WebkitTapHighlightColor: 'transparent',
-              WebkitUserSelect: 'none',
-              border: 'none',
-              boxShadow: 'none',
+              WebkitUserSelect: 'none'
             }}
           >
-            <div
-              className="relative"
-              style={{ position: 'relative', width: '100%', height: '100%' }}
-            >
-              {/* 데이터 없음 상태 */}
+            <div className="relative" style={{ width: '100%', height: '100%' }}>
               {(isLoading || error || fieldBubbles.length === 0) && (
                 <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
                   <div className="rounded-3xl bg-white/80 backdrop-blur-sm px-6 py-5 shadow-sm border border-purple-100">
@@ -602,9 +636,7 @@ export default function BubbleFieldScreen({
                   </div>
                 </div>
               )}
-              {/* 버블 렌더링 (world → screen 좌표 변환)
-                  - 현재는 props participants 기반
-                  - 이후에는 API에서 받은 room_participants 가공 결과 기반으로 렌더링 */}
+
               {fieldBubbles.map((bubble, index) => {
                 const isSelected = selectedBubble?.id === bubble.interest.id;
                 const motion = getBubbleMotionValues(bubble, index);
@@ -674,32 +706,117 @@ export default function BubbleFieldScreen({
         </div>
       </div>
 
-      {/* 공통 관심사 버튼 */}
-      <button
-        onClick={onShowCommonGround}
-        className="fixed bottom-6 right-5 w-14 h-14 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full shadow-xl shadow-purple-300/50 flex items-center justify-center active:scale-95 transition-transform z-50"
-        style={{ touchAction: 'manipulation' }}
-      >
-        <Sparkles className="w-6 h-6 text-white" />
-      </button>
+      <div className="fixed bottom-6 left-5 z-50 flex gap-3">
+        <button
+          onClick={() => setIsActivityOpen((prev) => !prev)}
+          className="w-14 h-14 bg-white/95 rounded-full shadow-xl border border-purple-100 flex items-center justify-center active:scale-95 transition-transform"
+        >
+          <Users className="w-6 h-6 text-purple-600" />
+        </button>
+        <button
+          onClick={() => {
+            void handleLeave();
+          }}
+          disabled={isLeaving}
+          className="w-14 h-14 bg-gray-900 rounded-full shadow-xl flex items-center justify-center active:scale-95 transition-transform disabled:opacity-50"
+        >
+          <LogOut className="w-5 h-5 text-white" />
+        </button>
+      </div>
 
-      {/* 상호작용 결과 알림 */}
-      {showNotification && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-top duration-300">
-          <div className="bg-purple-600 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-2">
-            <CheckCircle className="w-4 h-4" />
-            <span className="text-sm font-medium">
-              {selectedParticipant && selectedBubble
-                ? selectedBubble.level === 'deep3'
-                  ? `${selectedParticipant.name}에게 확인 요청을 보냈어요!`
-                  : `${selectedParticipant.name}의 관심사를 확인했어요!`
-                : '관심사를 확인했어요!'}
-            </span>
+      <div className="fixed bottom-6 right-5 z-50 flex gap-3">
+        {isHost && roomStatus === 'started' && (
+          <button
+            onClick={() => {
+              void handleFinish();
+            }}
+            disabled={isFinishing}
+            className="px-5 h-14 bg-white/95 text-purple-700 rounded-full shadow-xl border border-purple-100 font-semibold active:scale-95 transition-transform disabled:opacity-50"
+          >
+            {isFinishing ? '완료 중...' : 'Bubble Breaking 완료'}
+          </button>
+        )}
+
+        <button
+          onClick={onShowCommonGround}
+          className="w-14 h-14 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full shadow-xl shadow-purple-300/50 flex items-center justify-center active:scale-95 transition-transform"
+          style={{ touchAction: 'manipulation' }}
+        >
+          <Sparkles className="w-6 h-6 text-white" />
+        </button>
+      </div>
+
+      {isActivityOpen && (
+        <div className="fixed inset-x-4 bottom-24 z-50 bg-white/95 backdrop-blur-md rounded-3xl border border-purple-100 shadow-2xl p-4 max-h-[42vh] overflow-y-auto">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="font-semibold text-gray-900">활동 패널</h4>
+            <button
+              onClick={() => setIsActivityOpen(false)}
+              className="text-xs text-gray-500"
+            >
+              닫기
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {events.map((event) => {
+              const canRespond =
+                event.eventType === 'deep3_request' &&
+                event.targetUserId === currentUserId &&
+                event.status === 'pending';
+
+              return (
+                <div key={event.id} className="rounded-2xl border border-purple-100 bg-purple-50/50 p-4">
+                  <p className="text-sm text-gray-700">{getEventLabel(event, participants, currentUserId)}</p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {new Date(event.createdAt).toLocaleTimeString('ko-KR', {
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
+                  </p>
+
+                  {canRespond && (
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={() => {
+                          void handleApprove(event.id);
+                        }}
+                        className="flex-1 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-2 text-sm font-semibold"
+                      >
+                        수락
+                      </button>
+                      <button
+                        onClick={() => {
+                          void handleReject(event.id);
+                        }}
+                        className="flex-1 rounded-full bg-gray-200 text-gray-700 py-2 text-sm font-semibold"
+                      >
+                        거절
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {events.length === 0 && (
+              <div className="rounded-2xl border border-dashed border-purple-100 bg-white px-4 py-5 text-center text-sm text-gray-500">
+                아직 기록된 활동이 없어요
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* 버블 액션 UI */}
+      {showNotification && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-top duration-300">
+          <div className="bg-purple-600 text-white px-6 py-3 rounded-full shadow-lg flex items-center gap-2">
+            <CheckCircle className="w-4 h-4" />
+            <span className="text-sm font-medium">{notificationMessage}</span>
+          </div>
+        </div>
+      )}
+
       {showPopConfirm && selectedBubble && (
         <div
           className="fixed inset-0 bg-black/30 z-50 flex items-end"
@@ -713,8 +830,8 @@ export default function BubbleFieldScreen({
               <h3 className="font-bold text-gray-900 text-lg mb-2">버블을 터뜨릴까요?</h3>
               <p className="text-sm text-gray-600">
                 {selectedBubble.level === 'deep3'
-                  ? '상대방에게 요청을 보내요'
-                  : '관심사가 상대방에게 공개돼요'}
+                  ? '상대방에게 unlock 요청을 보내요'
+                  : '관심사에 반응을 보내고 추천 질문을 볼 수 있어요'}
               </p>
             </div>
 
@@ -724,7 +841,7 @@ export default function BubbleFieldScreen({
                   <Lock className="w-5 h-5 text-purple-500" />
                 )}
                 <span className="font-semibold text-gray-900">
-                  {selectedBubble.level === 'deep3' ? '🔒 비공개 관심사' : selectedBubble.text}
+                  {selectedBubble.level === 'deep3' ? selectedBubble.text : selectedBubble.text}
                 </span>
               </div>
             </div>
@@ -737,12 +854,58 @@ export default function BubbleFieldScreen({
                 취소
               </button>
               <button
-                onClick={handlePop}
-                className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 text-white py-3.5 rounded-full font-semibold active:scale-95 transition-transform"
+                onClick={() => {
+                  void handlePop();
+                }}
+                disabled={isActionSubmitting}
+                className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 text-white py-3.5 rounded-full font-semibold active:scale-95 transition-transform disabled:opacity-50"
               >
-                {selectedBubble.level === 'deep3' ? '요청 보내기' : '터뜨리기'}
+                {isActionSubmitting
+                  ? '처리 중...'
+                  : selectedBubble.level === 'deep3'
+                    ? '요청 보내기'
+                    : '터뜨리기'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {recommendationInterest && (
+        <div
+          className="fixed inset-0 bg-black/35 z-50 flex items-end"
+          onClick={() => setRecommendationInterest(null)}
+        >
+          <div
+            className="w-full bg-white rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-center mb-5">
+              <h3 className="font-bold text-gray-900 text-lg">이 주제로 대화를 이어가보세요</h3>
+              <p className="text-sm text-gray-600 mt-1">{recommendationInterest}</p>
+            </div>
+
+            <div className="space-y-3">
+              {[
+                `${recommendationInterest} 좋아하게 된 계기가 뭐예요?`,
+                `요즘 ${recommendationInterest} 관련해서 가장 재미있었던 순간은 언제였어요?`,
+                `${recommendationInterest} 이야기부터 시작하면 제일 자연스러울 것 같아요`
+              ].map((line) => (
+                <div
+                  key={line}
+                  className="rounded-2xl border border-purple-100 bg-purple-50/50 px-4 py-3 text-sm text-gray-700"
+                >
+                  {line}
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={() => setRecommendationInterest(null)}
+              className="mt-5 w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-3.5 rounded-full font-semibold"
+            >
+              닫기
+            </button>
           </div>
         </div>
       )}
