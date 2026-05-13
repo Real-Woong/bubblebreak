@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
-    "build:web": "yarn --cwd ../web build",
+    "build:web": "VITE_API_BASE_URL= yarn --cwd ../web build",
     "deploy": "wrangler deploy",
     "deploy:with-web": "yarn build:web && wrangler deploy"
   },

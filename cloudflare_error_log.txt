@@ -1,0 +1,225 @@
+BubbleBreak Cloudflare Failed to fetch 오류 정리
+작성일: 2026-05-13
+
+1. 사용자가 본 증상
+
+- Cloudflare에 배포된 BubbleBreak 화면에서 SetupScreen의 "방만들고 입장하기" 버튼을 누르면 아래에 "Failed to fetch"가 표시됨.
+- Chrome DevTools Network 탭에서 /rooms 요청이 실패함.
+- Cloudflare Dashboard에는 Requests 5 / Errors 5처럼 요청이 전부 에러로 기록됨.
+
+
+2. 핵심 원인 요약
+
+문제는 2개가 겹쳐 있었다.
+
+첫 번째 문제:
+- FE와 BE가 둘 다 Cloudflare에 배포되어 있었지만, 배포된 FE 안에 API 주소가 로컬 개발 서버 주소로 박혀 있었다.
+- 배포된 JS 파일 안에서 API_BASE_URL이 아래처럼 되어 있었다.
+
+  http://127.0.0.1:8787
+
+- 이 주소는 Cloudflare Worker가 아니라 "접속한 사용자 기기 자기 자신"을 의미한다.
+- 그래서 Cloudflare 사이트에 접속해도 FE가 Cloudflare BE가 아니라 로컬 BE를 찾으려고 했다.
+- 로컬 BE가 없는 환경에서는 브라우저가 서버에 연결하지 못해서 "Failed to fetch"가 발생했다.
+
+두 번째 문제:
+- Cloudflare Worker BE는 배포되어 있었지만, 연결된 원격 D1 DB에 migration이 적용되어 있지 않았다.
+- 원격 D1 DB에는 users, rooms, room_participants, room_events, room_sessions 같은 테이블이 없었다.
+- 그래서 Worker가 요청을 처리하려고 할 때 DB 쿼리에서 터지고 Cloudflare 1101 에러가 발생했다.
+
+
+3. 쉽게 비유
+
+- FE는 주문을 받는 손님 화면이다.
+- BE Worker는 주문을 처리하는 주방이다.
+- D1 DB는 주방의 재료 창고이다.
+
+잘못된 상태:
+- 손님은 Cloudflare 식당에 들어왔는데, 주문서는 http://127.0.0.1:8787 이라는 "손님 자기 집 주방"으로 보내고 있었다.
+- 설령 Cloudflare 주방으로 주문이 가도, Cloudflare 주방의 재료 창고에는 아직 선반과 재료 테이블이 만들어져 있지 않았다.
+
+수정 후 상태:
+- FE는 같은 Cloudflare 도메인의 /rooms로 주문을 보낸다.
+- Worker BE는 Cloudflare D1 DB의 rooms/users 테이블을 사용해서 방을 만든다.
+
+
+4. 확인했던 주요 로그
+
+로컬 Worker 최초 실행 시 오류:
+
+  service core:user:bubblebreak-demo: This Worker requires compatibility date "2026-04-27",
+  but the newest date supported by this server binary is "2026-04-08".
+
+의미:
+- 로컬 wrangler/workerd 버전이 프로젝트의 compatibility_date보다 낮은 날짜까지만 지원했다.
+- 로컬 dev 서버가 시작되지 않아 http://127.0.0.1:8787 요청이 실패했다.
+
+
+배포된 Cloudflare Worker 확인 시 오류:
+
+  GET https://bubblebreak-demo.jinung344.workers.dev/health
+  HTTP/2 500
+  error code: 1101
+
+의미:
+- Cloudflare Worker가 실행 중 예외로 죽었다.
+- 원격 D1 DB에 필요한 테이블이 없어서 Worker가 DB 접근 시 실패한 것이 원인이었다.
+
+
+원격 D1 DB 상태 확인:
+
+  wrangler d1 migrations list bubblebreak-db --remote
+
+  Migrations to be applied:
+  - 0001_init.sql
+  - 0002_sessions_events.sql
+
+의미:
+- 프로덕션 D1 DB에 migration이 아직 적용되지 않았다.
+
+
+원격 D1 DB 테이블 확인:
+
+  SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name
+
+  결과:
+  - _cf_KV
+
+의미:
+- 앱에 필요한 users, rooms, room_participants, room_events, room_sessions 테이블이 없었다.
+
+
+수정 후 확인:
+
+  GET https://bubblebreak-demo.jinung344.workers.dev/health
+  HTTP/2 200
+  {"ok":true,"service":"bubblebreak-worker"}
+
+  POST https://bubblebreak-demo.jinung344.workers.dev/rooms
+  HTTP/2 201
+  {"ok":true,"roomId":"...","roomCode":"...","userId":"...","nickname":"cloud-test"}
+
+의미:
+- Cloudflare Worker가 정상 실행된다.
+- 방 생성 API가 정상 동작한다.
+
+
+5. 수정한 파일과 수정 내용
+
+파일 1:
+apps/web/src/config/env.ts
+
+수정 전:
+
+  const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8787';
+
+문제:
+- 배포 환경에서 VITE_API_BASE_URL이 빌드에 들어가면 Cloudflare FE가 로컬 BE 주소를 바라보게 된다.
+- Cloudflare에 올라간 FE가 /rooms 요청을 같은 Cloudflare Worker로 보내지 않고 http://127.0.0.1:8787/rooms로 보내게 된다.
+
+수정 후:
+
+  const DEFAULT_API_BASE_URL = '';
+
+효과:
+- 배포 환경에서 API base URL이 비어 있으면 fetch('/rooms')처럼 같은 도메인으로 요청한다.
+- 즉 Cloudflare FE가 같은 Cloudflare Worker BE로 요청한다.
+
+
+파일 2:
+apps/worker/package.json
+
+수정 전:
+
+  "build:web": "yarn --cwd ../web build"
+
+문제:
+- apps/web/.env의 VITE_API_BASE_URL=http://127.0.0.1:8787 값이 배포용 빌드에 들어갈 수 있었다.
+- Vite는 빌드 시점에 VITE_ 환경변수를 JS 파일 안에 박아 넣는다.
+
+수정 후:
+
+  "build:web": "VITE_API_BASE_URL= yarn --cwd ../web build"
+
+효과:
+- Worker 배포용 웹 빌드를 만들 때 VITE_API_BASE_URL을 빈 값으로 강제한다.
+- 배포된 JS 안에 http://127.0.0.1:8787이 들어가지 않는다.
+
+
+파일 3:
+apps/worker/wrangler.jsonc
+
+수정 1:
+
+  "compatibility_date": "2026-04-27"
+
+에서
+
+  "compatibility_date": "2026-04-08"
+
+로 변경.
+
+이유:
+- 현재 설치된 로컬 wrangler/workerd가 2026-04-08까지만 지원해서 로컬 dev 서버가 시작되지 않았다.
+- 로컬 개발 서버 실행을 위해 지원 가능한 날짜로 맞췄다.
+
+수정 2:
+
+  CORS_ALLOWED_ORIGINS에 아래 운영 도메인을 추가했다.
+
+  https://bubblebreak-demo.jinung344.workers.dev
+
+효과:
+- 운영 도메인에서 Origin 헤더가 붙는 요청도 명확히 허용할 수 있다.
+- 현재는 같은 도메인 상대경로 요청이라 CORS 영향이 작지만, 운영 주소를 허용 목록에 넣어두는 것이 안전하다.
+
+
+6. 실행한 DB 수정 작업
+
+원격 Cloudflare D1 DB에 migration 적용:
+
+  yarn --cwd apps/worker wrangler d1 migrations apply bubblebreak-db --remote
+
+적용된 migration:
+
+  0001_init.sql
+  0002_sessions_events.sql
+
+생성된 주요 테이블:
+
+  users
+  rooms
+  room_participants
+  room_events
+  room_sessions
+
+
+7. 최종 정상 흐름
+
+수정 전:
+
+  Cloudflare FE
+  -> http://127.0.0.1:8787/rooms
+  -> 사용자 기기의 로컬 서버를 찾음
+  -> 서버가 없으면 Failed to fetch
+
+또는:
+
+  Cloudflare FE
+  -> Cloudflare Worker
+  -> D1 DB 테이블 없음
+  -> Worker 1101 에러
+
+
+수정 후:
+
+  Cloudflare FE
+  -> /rooms
+  -> 같은 도메인의 Cloudflare Worker BE
+  -> Cloudflare D1 DB
+  -> 방 생성 성공
+
+
+8. 한 줄 결론
+
+FE와 BE는 둘 다 Cloudflare에 있었지만, 배포된 FE가 로컬 BE 주소를 바라보고 있었고, Cloudflare BE가 사용하는 원격 D1 DB에는 migration이 적용되어 있지 않았다. 그래서 "Failed to fetch"와 Cloudflare 1101 에러가 발생했다.
