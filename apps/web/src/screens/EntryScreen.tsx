@@ -180,7 +180,7 @@ export default function EntryScreen({
         </div>
 
         {/* 하단 CTA 버튼 영역 */}
-        <div className="space-y-4">
+        <div className="space-y-4" style={{ marginTop: 32 }}>
           {/* 방 만들기:
               닉네임만 있으면 setup으로 이동 */}
           <button

@@ -111,6 +111,11 @@ export default function LobbyScreen({
     .filter((slot) => slot.participant.id !== currentUserId)
     .every((slot) => slot.status === 'ready');
 
+  const pendingParticipants = participantSlots.filter(
+    (slot) => slot.participant.id !== currentUserId && slot.status !== 'ready'
+  );
+  const pendingParticipantNames = pendingParticipants.map((slot) => slot.participant.name).join(', ');
+
   const isStartEnabled = isHost && participantCount >= 2 && roomStatus === 'waiting' && canStart;
 
   const amIReady = useMemo(
@@ -134,6 +139,20 @@ export default function LobbyScreen({
     } finally {
       setIsReadySubmitting(false);
     }
+  };
+
+  const handleParticipantPrimaryAction = async () => {
+    if (roomStatus === 'started') {
+      onNavigate('field');
+      return;
+    }
+
+    if (amIReady) {
+      await fetchRoom({ showRefreshing: true });
+      return;
+    }
+
+    await handleReady();
   };
 
   const handleStart = async () => {
@@ -249,6 +268,7 @@ export default function LobbyScreen({
               }
 
               const { participant, status } = slot;
+              const isParticipantHost = participant.id === hostUserId;
 
               return (
                 <div
@@ -267,7 +287,14 @@ export default function LobbyScreen({
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate text-gray-900">{participant.name}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-medium truncate text-gray-900">{participant.name}</p>
+                        {isParticipantHost && (
+                          <span className="shrink-0 rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-600">
+                            방장
+                          </span>
+                        )}
+                      </div>
 
                       {status === 'ready' && (
                         <div className="flex items-center gap-1 mt-0.5">
@@ -302,14 +329,39 @@ export default function LobbyScreen({
           ) : (
             <button
               onClick={() => {
-                void handleReady();
+                void handleParticipantPrimaryAction();
               }}
-              disabled={isReadySubmitting || amIReady}
+              disabled={isReadySubmitting || isRefreshing}
               className="w-full bg-gradient-to-r from-green-400 to-emerald-500 text-white py-4 rounded-full font-semibold shadow-lg active:scale-95 transition-transform disabled:opacity-50"
             >
-              {amIReady ? '준비완료됨' : isReadySubmitting ? '처리 중...' : '준비완료'}
+              {roomStatus === 'started'
+                ? 'BubbleField 입장'
+                : amIReady
+                  ? isRefreshing
+                    ? '시작 확인 중...'
+                    : '시작 상태 확인'
+                  : isReadySubmitting
+                    ? '처리 중...'
+                    : '준비완료'}
             </button>
           )}
+
+          <div className="rounded-2xl border border-purple-100/70 bg-white/70 p-4 text-center">
+            <p className="text-sm font-semibold text-gray-800">
+              {isHost
+                ? isStartEnabled
+                  ? '이제 시작할 수 있어요'
+                  : participantCount < 2
+                    ? '한 명 이상 더 들어오면 시작할 수 있어요'
+                    : '아직 준비 중인 친구가 있어요'
+                : amIReady
+                  ? '방장이 시작하면 바로 입장할 수 있어요'
+                  : '준비가 끝나면 준비완료를 눌러주세요'}
+            </p>
+            {isHost && pendingParticipantNames && (
+              <p className="mt-1 text-xs text-gray-500">대기 중: {pendingParticipantNames}</p>
+            )}
+          </div>
 
           <button
             onClick={() => onNavigate('setup')}
@@ -332,7 +384,9 @@ export default function LobbyScreen({
 
         {isHost && !isStartEnabled && (
           <p className="text-xs text-center text-gray-500 mt-2">
-            모든 참여자가 준비완료해야 시작할 수 있어요
+            {participantCount < 2
+              ? '최소 2명 이상일 때 시작할 수 있어요'
+              : '모든 참여자가 준비완료해야 시작할 수 있어요'}
           </p>
         )}
 

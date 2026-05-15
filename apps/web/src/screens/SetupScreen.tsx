@@ -172,17 +172,20 @@ export default function SetupScreen({
   // - 각 depth 는 최대 3개까지만 허용
   // - text 는 trim 해서 저장
   // - preview/field 공통 로직이 interest.id 를 사용하므로 draft 단계에서도 id 는 유지
-  const addInterest = () => {
-    const trimmed = inputValue.trim();
+  const addInterestText = (text: string) => {
+    const trimmed = text.trim();
 
     // 빈 문자열이면 추가하지 않음
-    if (!trimmed) return;
+    if (!trimmed) return false;
 
     // 현재 탭(depth)에 이미 몇 개 들어갔는지 계산
     const levelInterests = interests.filter((i) => i.level === activeLevel);
 
     // depth 별 최대 3개 제한
-    if (levelInterests.length >= 3) return;
+    if (levelInterests.length >= 3) return false;
+
+    // 같은 단계 안에서 같은 관심사를 중복으로 넣지 않음
+    if (levelInterests.some((interest) => interest.text === trimmed)) return false;
 
     // 부모(App.tsx)가 들고 있는 interests 상태에 새 항목 추가
     setInterests((prev) => [
@@ -194,8 +197,16 @@ export default function SetupScreen({
       },
     ]);
 
+    return true;
+  };
+
+  const addInterest = () => {
+    const didAdd = addInterestText(inputValue);
+
     // 입력 완료 후 입력창 비우기
-    setInputValue('');
+    if (didAdd) {
+      setInputValue('');
+    }
   };
 
   // 추가된 관심사를 삭제하는 함수
@@ -205,9 +216,27 @@ export default function SetupScreen({
   };
 
   const levels = [
-    { id: 'deep1' as DeepLevel, label: 'Deep 1', desc: '공개',  color: 'from-purple-400 to-purple-500', example: '게임, 운동, 음악 등' },
-    { id: 'deep2' as DeepLevel, label: 'Deep 2', desc: '반공개', color: 'from-pink-400 to-pink-500',   example: '조금 개인적인 취미' },
-    { id: 'deep3' as DeepLevel, label: 'Deep 3', desc: '비공개', color: 'from-purple-500 to-pink-600', example: '부끄럽거나 민감한 관심사' },
+    {
+      id: 'deep1' as DeepLevel,
+      label: '가볍게',
+      desc: '처음 만나도 편한 주제',
+      color: 'from-purple-400 to-purple-500',
+      examples: ['게임', '운동', '음악', '카페', '영화', '맛집']
+    },
+    {
+      id: 'deep2' as DeepLevel,
+      label: '조금 더',
+      desc: '취향이 드러나는 주제',
+      color: 'from-pink-400 to-pink-500',
+      examples: ['콘서트', '러닝', '사진', '요리', '여행', '보드게임']
+    },
+    {
+      id: 'deep3' as DeepLevel,
+      label: '비밀 취향',
+      desc: '허락받고 열어볼 주제',
+      color: 'from-purple-500 to-pink-600',
+      examples: ['덕질', '혼술', '연애관', '고민', '흑역사', '장래희망']
+    },
   ];
 
   // 현재 모드에 따라 상단 문구와 CTA 문구를 조금 다르게 보여준다.
@@ -289,7 +318,7 @@ export default function SetupScreen({
             <p className="text-xs font-semibold text-purple-500 mb-2">{modeLabel} 흐름</p>
 
             <h2 className="text-2xl font-bold text-gray-900 mb-2">내 관심사 설정하기</h2>
-            <p className="text-sm text-gray-600">각 단계별로 최대 3개까지 입력할 수 있어요</p>
+            <p className="text-sm text-gray-600">직접 쓰거나 예시를 눌러 최대 3개씩 골라요</p>
           </div>
 
           {/* 현재 draft 요약 카드
@@ -327,20 +356,24 @@ export default function SetupScreen({
         {/* Level tabs */}
         <div className="pb-2">
           <div className="flex gap-3">
-          {levels.map((level) => (
-            <button
-              key={level.id}
-              onClick={() => setActiveLevel(level.id)}
-              className={`flex-1 py-3 rounded-2xl font-semibold text-sm transition-all shadow-sm ${
-                activeLevel === level.id
-                  ? `bg-gradient-to-r ${level.color} text-white shadow-md`
-                  : 'bg-white/70 text-gray-600 border border-purple-100/70'
-              }`}
-            >
-              <div>{level.label}</div>
-              <div className="text-xs opacity-80">{level.desc}</div>
-            </button>
-          ))}
+            {levels.map((level) => {
+              const levelCount = interests.filter((interest) => interest.level === level.id).length;
+
+              return (
+                <button
+                  key={level.id}
+                  onClick={() => setActiveLevel(level.id)}
+                  className={`flex-1 h-14 rounded-2xl font-semibold text-sm transition-all shadow-sm ${
+                    activeLevel === level.id
+                      ? `bg-gradient-to-r ${level.color} text-white shadow-md`
+                      : 'bg-white/70 text-gray-600 border border-purple-100/70'
+                  }`}
+                >
+                  <span className="block whitespace-nowrap break-keep">{level.label}</span>
+                  <span className="block text-[11px] opacity-75 mt-0.5">{levelCount}/3</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -348,48 +381,79 @@ export default function SetupScreen({
         <div className="px-5 pt-6">
 
           {/* Level info */}
-          <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-4 mb-6 border border-purple-100/50">
+          <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-4 mb-5 border border-purple-100/50">
             <div className="flex items-start gap-3">
               {activeLevel === 'deep3' && <Lock className="w-5 h-5 text-purple-500 mt-0.5" />}
               <div className="flex-1">
-                <h3 className="font-semibold text-gray-900 text-sm mb-1">
-                  {currentLevel.label} - {currentLevel.desc}
+                <h3 className="font-semibold text-gray-900 text-sm mb-1 whitespace-nowrap">
+                  {currentLevel.label}
                 </h3>
-                <p className="text-xs text-gray-600">예시: {currentLevel.example}</p>
+                <p className="text-xs text-gray-600 break-keep">{currentLevel.desc}</p>
               </div>
             </div>
           </div>
 
-          {/* Input */}
-          <div className="mb-6">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onCompositionStart={() => setIsComposing(true)}
-                onCompositionEnd={() => setIsComposing(false)}
-                onKeyDown={(e) => {
-                  if (e.key !== 'Enter') return;
-                  const native = (e as any).nativeEvent;
-                  if (isComposing || native?.isComposing) return;
-                  e.preventDefault();
-                  addInterest();
-                }}
-                placeholder={isFull ? `${currentLevel.label} 최대 3개 입력됨` : '관심사를 입력하세요'}
-                maxLength={20}
-                disabled={isFull}
-                className="flex-1 bg-white/80 backdrop-blur-sm border-2 border-purple-200 rounded-full px-5 py-3 text-sm focus:outline-none focus:border-purple-400 disabled:opacity-50"
-              />
-              <button
-                onClick={addInterest}
-                disabled={!inputValue.trim() || isFull}
-                className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-md active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Plus className="w-5 h-5 text-white" />
-              </button>
+          {/* Suggestions and input */}
+          <div className="bg-white/75 backdrop-blur-sm rounded-3xl p-4 mb-6 border border-purple-100/70 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-semibold text-gray-800">빠른 선택</h4>
+              <span className="text-xs font-medium text-gray-400">{currentInterests.length}/3</span>
             </div>
-            <p className="text-xs text-gray-500 mt-2 px-2">{currentInterests.length}/3</p>
+
+            <div className="flex flex-wrap gap-2 mb-4">
+              {currentLevel.examples.map((example) => {
+                const alreadyAdded = currentInterests.some((interest) => interest.text === example);
+
+                return (
+                  <button
+                    key={example}
+                    onClick={() => {
+                      if (addInterestText(example)) {
+                        setInputValue('');
+                      }
+                    }}
+                    disabled={isFull || alreadyAdded}
+                    className={`h-9 px-4 rounded-full text-sm font-medium border transition-all active:scale-95 disabled:cursor-not-allowed whitespace-nowrap ${
+                      alreadyAdded
+                        ? `bg-gradient-to-r ${currentLevel.color} text-white border-transparent shadow-sm`
+                        : 'bg-purple-50/60 text-gray-700 border-purple-100 hover:bg-purple-50 hover:border-purple-200'
+                    } disabled:opacity-70`}
+                  >
+                    {example}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="pt-4 border-t border-purple-100/70">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onCompositionStart={() => setIsComposing(true)}
+                  onCompositionEnd={() => setIsComposing(false)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    const native = (e as any).nativeEvent;
+                    if (isComposing || native?.isComposing) return;
+                    e.preventDefault();
+                    addInterest();
+                  }}
+                  placeholder={isFull ? `${currentLevel.label} 최대 3개 입력됨` : '직접 입력하기'}
+                  maxLength={20}
+                  disabled={isFull}
+                  className="flex-1 min-w-0 bg-white/90 backdrop-blur-sm border-2 border-purple-200 rounded-full px-5 py-3 text-sm focus:outline-none focus:border-purple-400 disabled:opacity-50"
+                />
+                <button
+                  onClick={addInterest}
+                  disabled={!inputValue.trim() || isFull}
+                  className="w-12 h-12 shrink-0 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-md active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Plus className="w-5 h-5 text-white" />
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Interest chips */}
