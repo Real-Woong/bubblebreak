@@ -1,5 +1,5 @@
 import { Dispatch, SetStateAction, useMemo, useState } from 'react';
-import { Lock, Plus, X, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Lock, Plus, X, ChevronRight } from 'lucide-react';
 import type { Screen, DeepLevel, Interest } from '../types/bubble';
 import BubblePreview from '../components/BubblePreview';
 import { createRoom, joinRoom } from '../api/room';
@@ -22,6 +22,10 @@ type SetupScreenProps = {
 
   // join 흐름일 때 입력한 방 코드
   roomCodeInput: string;
+
+  // 이미 create/join을 마친 뒤라면 채워져 있음 (예: 대기실에서 "내 버블 수정"으로 들어온 경우)
+  // 뒤로가기 목적지를 정할 때 이 값으로 "아직 방에 들어가기 전"인지 구분한다.
+  roomCode: string;
 
   // 현재까지 추가된 관심사 목록
   interests: Interest[];
@@ -145,6 +149,7 @@ export default function SetupScreen({
   nickname,
   mode,
   roomCodeInput,
+  roomCode,
   interests,
   setInterests,
   setCurrentUserId,
@@ -312,6 +317,14 @@ export default function SetupScreen({
       <div className="max-w-[375px] mx-auto">
 
         <div className="px-5 pt-8 pb-4">
+          {/* 방을 아직 안 만들었으면 entry로, 이미 방에 들어간 상태(대기실에서 수정하러 온 경우)면 lobby로 */}
+          <button
+            onClick={() => onNavigate(roomCode ? 'lobby' : 'entry')}
+            className="w-9 h-9 mb-4 bg-white/70 backdrop-blur-sm rounded-full border border-purple-100/50 shadow-sm flex items-center justify-center active:scale-95 transition-transform"
+          >
+            <ArrowLeft className="w-4 h-4 text-gray-600" />
+          </button>
+
           {/* Header */}
           <div className="text-center mb-6">
             {/* 어떤 플로우(create / join)인지 먼저 보여주면 사용자가 지금 뭘 하고 있는지 덜 헷갈린다. */}

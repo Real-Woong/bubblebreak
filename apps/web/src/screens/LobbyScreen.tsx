@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Copy, LogOut, Users, ChevronRight, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Check, Copy, LogOut, Users, ChevronRight, RefreshCw } from 'lucide-react';
 import { appEnv } from '../config/env';
 import type { Screen } from '../types/bubble';
 import { getRoom, getRoomMe, leaveRoom, readyRoom, startRoom } from '../api/room';
@@ -206,6 +206,17 @@ export default function LobbyScreen({
   return (
     <div className="min-h-screen px-5 pt-8 pb-8">
       <div className="max-w-[375px] mx-auto">
+        {/* 방을 나가면서(=leaveRoom 호출) entry로 돌아가는, "뒤로가기" 역할의 버튼 */}
+        <button
+          onClick={() => {
+            void handleLeave();
+          }}
+          disabled={isLeaving}
+          className="w-9 h-9 mb-4 bg-white/70 backdrop-blur-sm rounded-full border border-purple-100/50 shadow-sm flex items-center justify-center active:scale-95 transition-transform disabled:opacity-50"
+        >
+          <ArrowLeft className="w-4 h-4 text-gray-600" />
+        </button>
+
         <div className="text-center mb-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">방 대기실</h2>
           <p className="text-sm text-gray-600">참여자들이 모이면 시작할 수 있어요</p>

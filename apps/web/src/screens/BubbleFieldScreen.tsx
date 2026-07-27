@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle, Lock, LogOut, Sparkles, Users, RefreshCw } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Lock, LogOut, Sparkles, Users, RefreshCw } from 'lucide-react';
 import { appEnv } from '../config/env';
 import type { ApiRoomEvent } from '../types/api';
 import type { Interest, Participant, Screen } from '../types/bubble';
@@ -655,7 +655,17 @@ export default function BubbleFieldScreen({
         className="fixed top-0 left-0 right-0 z-40 bg-white/92 backdrop-blur-md border-b border-purple-100"
         style={{ height: `${HEADER_HEIGHT}px`, width: '100%', boxSizing: 'border-box' }}
       >
-        <div className="relative flex items-center h-full px-5 w-full">
+        <div className="relative flex items-center gap-3 h-full px-5 w-full">
+          <button
+            onClick={() => {
+              void handleLeave();
+            }}
+            disabled={isLeaving}
+            className="w-9 h-9 shrink-0 bg-white rounded-full border border-purple-100 shadow-sm flex items-center justify-center active:scale-95 transition-transform disabled:opacity-50"
+          >
+            <ArrowLeft className="w-4 h-4 text-gray-600" />
+          </button>
+
           <div className="min-w-0">
             <h3 className="font-semibold text-gray-900">버블 필드</h3>
             <p className="text-xs text-gray-500">버블을 눌러 관심사를 확인하세요</p>

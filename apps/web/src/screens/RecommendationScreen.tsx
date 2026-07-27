@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { MessageCircle, Sparkles } from 'lucide-react';
+import { ArrowLeft, MessageCircle, Sparkles } from 'lucide-react';
 import type { ApiRoomSummaryPair } from '../types/api';
 import { getRoomSummary } from '../api/room';
 import { ApiUnauthorizedError } from '../api/client';
@@ -106,7 +106,14 @@ export default function RecommendationScreen({
 
   return (
     <div className="min-h-screen px-5 py-8 bg-gradient-to-b from-purple-50 via-pink-50 to-white">
-      <div className="max-w-[420px] mx-auto">
+      <div className="max-w-[375px] mx-auto">
+        <button
+          onClick={() => onExit()}
+          className="w-9 h-9 mb-4 bg-white/80 backdrop-blur-sm rounded-full border border-purple-100 shadow-sm flex items-center justify-center active:scale-95 transition-transform"
+        >
+          <ArrowLeft className="w-4 h-4 text-gray-600" />
+        </button>
+
         <div className="text-center mb-8">
           <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 mx-auto mb-4 flex items-center justify-center shadow-lg">
             <Sparkles className="w-8 h-8 text-white" />

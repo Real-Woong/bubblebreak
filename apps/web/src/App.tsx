@@ -162,6 +162,7 @@ export default function App() {
           nickname={nickname}
           mode={mode}
           roomCodeInput={roomCodeInput}
+          roomCode={roomCode}
           interests={myInterests}
           setInterests={setMyInterests}
           setCurrentUserId={setCurrentUserId}
