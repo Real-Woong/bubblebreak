@@ -1,10 +1,25 @@
 import { useEffect, useMemo, useState } from 'react';
-import { MessageCircle, Sparkles, Users } from 'lucide-react';
-import type { ApiRoomSummaryItem, ApiRoomSummaryPair } from '../types/api';
+import { MessageCircle, Sparkles } from 'lucide-react';
+import type { ApiRoomSummaryPair } from '../types/api';
 import { getRoomSummary } from '../api/room';
 import { ApiUnauthorizedError } from '../api/client';
 
 const SESSION_EXPIRED_MESSAGE = '세션이 만료됐어요. 다시 입장해주세요.';
+
+type MutualMatch = {
+  id: string;
+  userAName: string;
+  userBName: string;
+  interestText: string;
+  icebreakers: string[];
+};
+
+type OneWayReveal = {
+  id: string;
+  sourceName: string;
+  targetName: string;
+  interestText: string | null;
+};
 
 function buildIcebreakers(text: string): string[] {
   return [
@@ -14,24 +29,41 @@ function buildIcebreakers(text: string): string[] {
   ];
 }
 
-function itemLabel(item: ApiRoomSummaryItem, pair: ApiRoomSummaryPair) {
-  if (item.kind === 'mutual') {
-    return item.interestText
-      ? `둘 다 '${item.interestText}'에 흥미가 있어요`
-      : '둘 다 비공개 관심사를 확인했어요';
-  }
+function buildMatches(pairs: ApiRoomSummaryPair[]) {
+  const mutualMatches: MutualMatch[] = [];
+  const oneWayReveals: OneWayReveal[] = [];
 
-  const sourceName = item.sourceUserId === pair.userAId ? pair.userAName : pair.userBName;
-  const targetName = item.targetUserId === pair.userAId ? pair.userAName : pair.userBName;
+  pairs.forEach((pair) => {
+    pair.items.forEach((item, idx) => {
+      if (item.kind === 'mutual') {
+        if (!item.interestText) return;
+        mutualMatches.push({
+          id: `${pair.userAId}-${pair.userBId}-${idx}`,
+          userAName: pair.userAName,
+          userBName: pair.userBName,
+          interestText: item.interestText,
+          icebreakers: buildIcebreakers(item.interestText)
+        });
+        return;
+      }
 
-  return item.interestText
-    ? `${sourceName}가 ${targetName}의 '${item.interestText}'를 확인했어요`
-    : `${sourceName}가 ${targetName}의 비공개 관심사를 확인했어요`;
+      const sourceName = item.sourceUserId === pair.userAId ? pair.userAName : pair.userBName;
+      const targetName = item.targetUserId === pair.userAId ? pair.userAName : pair.userBName;
+
+      oneWayReveals.push({
+        id: `${pair.userAId}-${pair.userBId}-${idx}`,
+        sourceName,
+        targetName,
+        interestText: item.interestText
+      });
+    });
+  });
+
+  return { mutualMatches, oneWayReveals };
 }
 
 export default function RecommendationScreen({
   roomCode,
-  currentUserId,
   onExit
 }: {
   roomCode: string;
@@ -70,22 +102,7 @@ export default function RecommendationScreen({
     };
   }, [roomCode, onExit]);
 
-  const sortedPairs = useMemo(() => {
-    const involvesMe = (pair: ApiRoomSummaryPair) =>
-      pair.userAId === currentUserId || pair.userBId === currentUserId;
-
-    return [...pairs].sort((a, b) => Number(involvesMe(b)) - Number(involvesMe(a)));
-  }, [pairs, currentUserId]);
-
-  const icebreakerLines = useMemo(() => {
-    const lines = pairs.flatMap((pair) =>
-      pair.items
-        .filter((item) => item.kind === 'mutual' && item.interestText)
-        .flatMap((item) => buildIcebreakers((item as { interestText: string }).interestText))
-    );
-
-    return Array.from(new Set(lines)).slice(0, 6);
-  }, [pairs]);
+  const { mutualMatches, oneWayReveals } = useMemo(() => buildMatches(pairs), [pairs]);
 
   return (
     <div className="min-h-screen px-5 py-8 bg-gradient-to-b from-purple-50 via-pink-50 to-white">
@@ -95,7 +112,7 @@ export default function RecommendationScreen({
             <Sparkles className="w-8 h-8 text-white" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Bubble Breaking 완료</h2>
-          <p className="text-sm text-gray-600">이 방에서 있었던 관심사 매칭이에요</p>
+          <p className="text-sm text-gray-600">이제 자연스럽게 대화를 시작해보세요</p>
         </div>
 
         {isLoading && (
@@ -111,70 +128,72 @@ export default function RecommendationScreen({
         )}
 
         {!isLoading && !error && (
-          <div className="space-y-3 mb-8">
-            {sortedPairs.map((pair) => (
+          <div className="space-y-4 mb-8">
+            {mutualMatches.map((match) => (
               <div
-                key={`${pair.userAId}-${pair.userBId}`}
-                className="bg-white rounded-3xl px-5 py-4 border border-purple-100 shadow-sm"
+                key={match.id}
+                className="bg-white rounded-3xl p-5 shadow-sm border-2 border-purple-100"
               >
-                <div className="flex items-center gap-2 mb-3">
-                  <Users className="w-4 h-4 text-purple-500" />
-                  <p className="text-sm font-semibold text-gray-900">
-                    {pair.userAName} ↔ {pair.userBName}
-                  </p>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex items-center">
+                    <div className="w-10 h-10 bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center text-white font-semibold z-10">
+                      {match.userAName.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-cyan-400 rounded-full flex items-center justify-center text-white font-semibold -ml-3">
+                      {match.userBName.charAt(0).toUpperCase()}
+                    </div>
+                  </div>
+
+                  <div className="flex-1">
+                    <p className="text-sm text-gray-600">
+                      {match.userAName} + {match.userBName}
+                    </p>
+                    <p className="font-bold text-purple-600 text-lg">{match.interestText}</p>
+                  </div>
                 </div>
 
                 <div className="space-y-2">
-                  {pair.items.map((item, idx) => (
-                    <div
-                      key={`${pair.userAId}-${pair.userBId}-${idx}`}
-                      className={`flex items-start gap-3 rounded-2xl px-4 py-3 ${
-                        item.kind === 'mutual'
-                          ? 'bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-100'
-                          : 'bg-gray-50'
-                      }`}
+                  <p className="text-xs text-gray-500 font-medium mb-2">💬 대화 시작하기</p>
+                  {match.icebreakers.map((icebreaker, idx) => (
+                    <button
+                      key={`${match.id}-${idx}`}
+                      className="w-full bg-gradient-to-r from-purple-50 to-pink-50 hover:from-purple-100 hover:to-pink-100 text-gray-700 px-4 py-3 rounded-2xl text-sm text-left border border-purple-100 active:scale-98 transition-all"
                     >
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                          item.kind === 'mutual' ? 'bg-purple-100' : 'bg-gray-100'
-                        }`}
-                      >
-                        <MessageCircle
-                          className={`w-4 h-4 ${item.kind === 'mutual' ? 'text-purple-600' : 'text-gray-500'}`}
-                        />
-                      </div>
-                      <p
-                        className={`text-sm leading-relaxed ${
-                          item.kind === 'mutual' ? 'text-purple-700 font-medium' : 'text-gray-600'
-                        }`}
-                      >
-                        {itemLabel(item, pair)}
-                      </p>
-                    </div>
+                      {icebreaker}
+                    </button>
                   ))}
                 </div>
               </div>
             ))}
 
-            {sortedPairs.length === 0 && (
+            {mutualMatches.length === 0 && (
               <div className="bg-white rounded-3xl px-5 py-6 border border-purple-100 shadow-sm text-center text-sm text-gray-500">
-                이번 방에서는 서로 버블을 확인한 기록이 없어요.
+                이번 방에서는 서로 같은 관심사를 확인한 기록이 없어요.
               </div>
             )}
-          </div>
-        )}
 
-        {icebreakerLines.length > 0 && (
-          <div className="space-y-3 mb-8">
-            <p className="text-xs font-semibold text-gray-500 px-1">💬 대화 시작 문장 추천</p>
-            {icebreakerLines.map((line, index) => (
-              <div
-                key={`${line}-${index}`}
-                className="bg-white rounded-3xl px-5 py-4 border border-purple-100 shadow-sm"
-              >
-                <p className="text-sm leading-relaxed text-gray-700">{line}</p>
+            {oneWayReveals.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-gray-500 px-1">그 외 있었던 반응들</p>
+                {oneWayReveals.map((reveal) => (
+                  <div
+                    key={reveal.id}
+                    className="bg-white rounded-3xl px-5 py-4 border border-purple-100 shadow-sm"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center shrink-0">
+                        <MessageCircle className="w-4 h-4 text-purple-600" />
+                      </div>
+                      <p className="text-sm leading-relaxed text-gray-700">
+                        {reveal.interestText
+                          ? `${reveal.sourceName}가 ${reveal.targetName}의 '${reveal.interestText}'를 확인했어요`
+                          : `${reveal.sourceName}가 ${reveal.targetName}의 비공개 관심사를 확인했어요`}
+                      </p>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
         )}
 

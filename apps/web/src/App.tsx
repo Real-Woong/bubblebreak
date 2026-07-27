@@ -205,6 +205,7 @@ export default function App() {
 
       {showCommonGround && (
         <CommonGroundScreen
+          myName={nickname.trim() || '나'}
           interactions={myInteractions}
           onClose={() => setShowCommonGround(false)}
         />
