@@ -367,7 +367,7 @@ export default function SetupScreen({
         </div>
 
         {/* Level tabs */}
-        <div className="pb-2">
+        <div className="px-5 pb-2">
           <div className="flex gap-3">
             {levels.map((level) => {
               const levelCount = interests.filter((interest) => interest.level === level.id).length;
@@ -376,7 +376,7 @@ export default function SetupScreen({
                 <button
                   key={level.id}
                   onClick={() => setActiveLevel(level.id)}
-                  className={`flex-1 h-14 rounded-2xl font-semibold text-sm transition-all shadow-sm ${
+                  className={`flex-1 min-w-0 h-14 rounded-2xl font-semibold text-sm transition-all shadow-sm ${
                     activeLevel === level.id
                       ? `bg-gradient-to-r ${level.color} text-white shadow-md`
                       : 'bg-white/70 text-gray-600 border border-purple-100/70'
