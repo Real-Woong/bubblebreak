@@ -266,12 +266,25 @@ export default function BubbleFieldScreen({
   const panStartYRef = useRef(0);
   const lastCameraLayoutKeyRef = useRef('');
   const handledAcceptedEventsRef = useRef<Set<string>>(new Set());
+  const handledPopNotificationsRef = useRef<Set<string>>(new Set());
+  const handledPendingRequestNotificationsRef = useRef<Set<string>>(new Set());
 
   const isHost = hostUserId === currentUserId;
 
   const fieldBubbles = useMemo(() => {
     return buildWorldLayout(participants, currentUserId);
   }, [participants, currentUserId]);
+
+  // 이미 내가 pop한 (deep2) 버블은 다시 볼 때 블러 처리하지 않기 위한 키 집합.
+  const revealedBubbleKeys = useMemo(() => {
+    const keys = new Set<string>();
+    events.forEach((event) => {
+      if (event.eventType === 'pop' && event.sourceUserId === currentUserId) {
+        keys.add(`${event.targetUserId}:${event.interestId}`);
+      }
+    });
+    return keys;
+  }, [events, currentUserId]);
 
   const resetDragState = () => {
     window.setTimeout(() => {
@@ -419,6 +432,45 @@ export default function BubbleFieldScreen({
       setNotificationMessage('private 관심사 요청이 수락됐어요!');
       setShowNotification(true);
       setRecommendationInterest(findInterestText(participants, event.targetUserId, event.interestId));
+    });
+  }, [events, currentUserId, participants]);
+
+  // 내 버블을 상대가 pop했을 때 나에게도 알림을 띄운다.
+  useEffect(() => {
+    const poppedMineEvents = events.filter(
+      (event) =>
+        event.eventType === 'pop' &&
+        event.targetUserId === currentUserId &&
+        !handledPopNotificationsRef.current.has(event.id)
+    );
+
+    poppedMineEvents.forEach((event) => {
+      handledPopNotificationsRef.current.add(event.id);
+      const sourceName =
+        participants.find((participant) => participant.id === event.sourceUserId)?.name ?? '누군가';
+      const interestText = findInterestText(participants, currentUserId, event.interestId);
+      setNotificationMessage(`${sourceName}님이 당신의 '${interestText}' 버블을 확인했어요!`);
+      setShowNotification(true);
+      setRecommendationInterest(interestText);
+    });
+  }, [events, currentUserId, participants]);
+
+  // 비공개(deep3) 관심사 열람 요청이 새로 들어왔을 때 나에게 알림을 띄운다.
+  useEffect(() => {
+    const newPendingRequests = events.filter(
+      (event) =>
+        event.eventType === 'deep3_request' &&
+        event.targetUserId === currentUserId &&
+        event.status === 'pending' &&
+        !handledPendingRequestNotificationsRef.current.has(event.id)
+    );
+
+    newPendingRequests.forEach((event) => {
+      handledPendingRequestNotificationsRef.current.add(event.id);
+      const sourceName =
+        participants.find((participant) => participant.id === event.sourceUserId)?.name ?? '누군가';
+      setNotificationMessage(`${sourceName}님이 비공개 관심사 열람을 요청했어요! 아래 활동 목록에서 확인해보세요`);
+      setShowNotification(true);
     });
   }, [events, currentUserId, participants]);
 
@@ -791,6 +843,9 @@ export default function BubbleFieldScreen({
                         sizePx={bubble.size}
                         isMine={bubble.isMine}
                         isSelected={isSelected}
+                        isRevealed={
+                          bubble.isMine || revealedBubbleKeys.has(`${bubble.participantId}:${bubble.interest.id}`)
+                        }
                         onTap={() => handleBubbleTap(bubble)}
                       />
                     </div>

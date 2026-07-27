@@ -80,12 +80,14 @@ export default function BubbleField({
   sizePx,
   isMine,
   isSelected,
+  isRevealed,
   onTap
 }: {
   interest: Interest;
   sizePx: number;
   isMine: boolean;
   isSelected: boolean;
+  isRevealed: boolean;
   onTap: () => void;
 }) {
   const baseFontSize = Math.max(16, Math.round(sizePx * 0.14));
@@ -167,7 +169,7 @@ export default function BubbleField({
               WebkitBoxOrient: 'vertical',
               overflow: 'hidden'
             }}
-            className="text-white blur-[2px]"
+            className={`text-white ${isRevealed ? '' : 'blur-[2px]'}`}
           >
             {interest.text}
           </span>
