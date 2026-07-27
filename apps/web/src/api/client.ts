@@ -10,6 +10,15 @@
 import type { ApiErrorResponse } from "../types/api";
 import { appEnv } from "../config/env";
 
+// 세션 쿠키가 없거나 만료돼서 401을 받은 경우를 구분하기 위한 에러 타입.
+// 화면 쪽에서는 이 타입만 보고 "세션 만료 -> 처음 화면으로" 처리를 할 수 있다.
+export class ApiUnauthorizedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ApiUnauthorizedError";
+  }
+}
+
 // -------------------------------------------
 // 개발환경 / 배포환경에서 바뀔 수 있는 API주소
 // 나중에 .env로 빼기 쉽게 const로 분리
@@ -57,6 +66,9 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
         // 이 경우 서버가 내려준 Message를 최대한 살려서 에러를 던진다.
         if (!response.ok) {
             const error = data as ApiErrorResponse;
+            if (response.status === 401) {
+                throw new ApiUnauthorizedError(error.message ?? '세션이 만료됐어요');
+            }
             throw new Error(error.message ?? 'API 요청 실패');
         }
 

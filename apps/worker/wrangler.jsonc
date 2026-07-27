@@ -17,5 +17,8 @@
 			"database_name": "bubblebreak-db",
 			"database_id": "ffc0d752-1bdf-4860-bc8c-01ab9580cbed"
 		}
-	]
+	],
+	"triggers": {
+		"crons": ["*/2 * * * *"]
+	}
 }

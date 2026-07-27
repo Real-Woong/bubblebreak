@@ -12,6 +12,10 @@ type ParticipantInterestRow = {
   interests_json: string;
 };
 
+type ExistingEventRow = {
+  id: string;
+};
+
 export async function popBubbleRoute(request: Request, env: Env): Promise<Response> {
   try {
     const url = new URL(request.url);
@@ -74,6 +78,25 @@ export async function popBubbleRoute(request: Request, env: Env): Promise<Respon
 
     if (matchedInterest.level === "deep3") {
       return jsonResponse({ ok: false, message: "Use deep3 request for private bubbles" }, 409);
+    }
+
+    const existing = await env.DB.prepare(
+      `
+      SELECT id
+      FROM room_events
+      WHERE room_id = ?
+        AND event_type = 'pop'
+        AND source_user_id = ?
+        AND target_user_id = ?
+        AND interest_id = ?
+      `
+    )
+      .bind(room.id, session.userId, targetUserId, interestId)
+      .first<ExistingEventRow>();
+
+    if (existing) {
+      await touchSession(env, session.sessionId, new Date().toISOString());
+      return jsonResponse({ ok: true, eventId: existing.id, status: "completed" });
     }
 
     const eventId = crypto.randomUUID();

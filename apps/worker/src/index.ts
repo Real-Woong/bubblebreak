@@ -6,6 +6,7 @@ import { getRoomRoute } from "./routes/getRoom";
 import { readyRoomRoute } from "./routes/readyRoom";
 import { startRoomRoute } from "./routes/startRoom";
 import { getRoomEventsRoute } from "./routes/getRoomEvents";
+import { getRoomSummaryRoute } from "./routes/getRoomSummary";
 import { popBubbleRoute } from "./routes/popBubble";
 import { requestDeep3UnlockRoute } from "./routes/requestDeep3Unlock";
 import { approveDeep3UnlockRoute } from "./routes/approveDeep3Unlock";
@@ -67,8 +68,6 @@ export default {
     const url = new URL(request.url);
     const requestOrigin = request.headers.get("Origin");
 
-    await runRoomCleanup(env);
-
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
@@ -88,6 +87,8 @@ export default {
       response = await joinRoomRoute(request, env);
     } else if (request.method === "GET" && /^\/rooms\/[^/]+\/events$/.test(url.pathname)) {
       response = await getRoomEventsRoute(request, env);
+    } else if (request.method === "GET" && /^\/rooms\/[^/]+\/summary$/.test(url.pathname)) {
+      response = await getRoomSummaryRoute(request, env);
     } else if (request.method === "GET" && /^\/rooms\/[^/]+\/me$/.test(url.pathname)) {
       response = await getRoomMeRoute(request, env);
     } else if (request.method === "POST" && /^\/rooms\/[^/]+\/pop$/.test(url.pathname)) {
@@ -119,5 +120,12 @@ export default {
     }
 
     return response;
+  },
+
+  // cleanup은 방/세션 개수에 비례해 여러 쿼리를 도는 무거운 작업이라
+  // 매 요청마다 돌리면 요청 지연/DB read 비용이 방 개수만큼 늘어난다.
+  // 그래서 요청 경로에서 완전히 빼고 Cron Trigger(wrangler.jsonc의 triggers.crons)로만 돌린다.
+  async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
+    await runRoomCleanup(env);
   },
 };

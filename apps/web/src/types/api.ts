@@ -126,6 +126,33 @@ export type RoomMeResponse = {
   };
 };
 
+export type ApiRoomSummaryItem =
+  | {
+      kind: 'mutual';
+      level: ApiInterestLevel;
+      interestText: string | null;
+    }
+  | {
+      kind: 'oneWay';
+      level: ApiInterestLevel;
+      interestText: string | null;
+      sourceUserId: string;
+      targetUserId: string;
+    };
+
+export type ApiRoomSummaryPair = {
+  userAId: string;
+  userAName: string;
+  userBId: string;
+  userBName: string;
+  items: ApiRoomSummaryItem[];
+};
+
+export type GetRoomSummaryResponse = {
+  ok: true;
+  pairs: ApiRoomSummaryPair[];
+};
+
 export type ApiErrorResponse = {
   ok: false;
   message: string;

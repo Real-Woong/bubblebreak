@@ -1,6 +1,6 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Screen } from '../types/bubble';
-import { Sparkles, Users } from 'lucide-react';
+import { Sparkles, Users, AlertCircle } from 'lucide-react';
 
 // 로고 이미지
 // 주의: 이 경로는 "현재 파일 위치" 기준 상대경로여야 함
@@ -15,7 +15,9 @@ export default function EntryScreen({
   roomCodeInput,
   setRoomCodeInput,
   setMode,
-  onNavigate
+  onNavigate,
+  notice,
+  onDismissNotice
 }: {
   // 부모(App.tsx)에서 내려준 닉네임 상태
   nickname: string;
@@ -34,6 +36,12 @@ export default function EntryScreen({
 
   // 현재 화면 전환 함수
   onNavigate: (screen: Screen) => void;
+
+  // 세션 만료 등으로 강제로 entry에 돌아왔을 때 보여줄 안내 문구
+  notice?: string | null;
+
+  // 안내 문구를 닫았을 때 호출
+  onDismissNotice?: () => void;
 }) {
   // 타이틀 실제 너비를 읽기 위한 ref
   const titleRef = useRef<HTMLHeadingElement | null>(null);
@@ -55,6 +63,17 @@ export default function EntryScreen({
 
     return () => window.removeEventListener('resize', update);
   }, []);
+
+  // 안내 문구는 잠깐 보여주고 자동으로 닫는다.
+  useEffect(() => {
+    if (!notice) return;
+
+    const timeoutId = window.setTimeout(() => {
+      onDismissNotice?.();
+    }, 4000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [notice, onDismissNotice]);
 
   // "방 만들기" 버튼 클릭
   const handleCreate = () => {
@@ -86,6 +105,13 @@ export default function EntryScreen({
   return (
     <div className="min-h-screen px-5 pt-10 pb-8 flex">
       <div className="max-w-[375px] w-full mx-auto flex flex-col flex-1">
+        {notice && (
+          <div className="mb-4 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+            <p className="text-xs text-amber-700 leading-relaxed">{notice}</p>
+          </div>
+        )}
+
         <div className="flex-1 flex flex-col justify-center">
           {/* 상단 브랜드 영역 */}
           <div className="text-center">

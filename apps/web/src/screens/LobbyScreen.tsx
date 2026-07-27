@@ -3,7 +3,10 @@ import { Check, Copy, LogOut, Users, ChevronRight, RefreshCw } from 'lucide-reac
 import { appEnv } from '../config/env';
 import type { Screen } from '../types/bubble';
 import { getRoom, getRoomMe, leaveRoom, readyRoom, startRoom } from '../api/room';
+import { ApiUnauthorizedError } from '../api/client';
 import { mapApiParticipantsToRoomSlots } from '../mappers/room';
+
+const SESSION_EXPIRED_MESSAGE = '세션이 만료됐어요. 다시 입장해주세요.';
 
 // (Demo배포)
 // 데모 배포에서는 자동 polling을 꺼서 request 수를 최소화합니다.
@@ -21,7 +24,7 @@ export default function LobbyScreen({
   currentUserId: string;
   setCurrentUserId: (userId: string) => void;
   onNavigate: (screen: Screen) => void;
-  onResetSession: () => void;
+  onResetSession: (message?: string) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [roomStatus, setRoomStatus] = useState<string>('');
@@ -62,6 +65,10 @@ export default function LobbyScreen({
         onNavigate('recommendation');
       }
     } catch (fetchError) {
+      if (fetchError instanceof ApiUnauthorizedError) {
+        onResetSession(SESSION_EXPIRED_MESSAGE);
+        return;
+      }
       setError(fetchError instanceof Error ? fetchError.message : '방 정보를 불러오지 못했어요');
     } finally {
       setIsLoading(false);
@@ -135,6 +142,10 @@ export default function LobbyScreen({
       await readyRoom(roomCode);
       await fetchRoom();
     } catch (readyError) {
+      if (readyError instanceof ApiUnauthorizedError) {
+        onResetSession(SESSION_EXPIRED_MESSAGE);
+        return;
+      }
       setError(readyError instanceof Error ? readyError.message : '준비완료 처리에 실패했어요');
     } finally {
       setIsReadySubmitting(false);
@@ -164,6 +175,10 @@ export default function LobbyScreen({
       await startRoom(roomCode);
       onNavigate('field');
     } catch (startError) {
+      if (startError instanceof ApiUnauthorizedError) {
+        onResetSession(SESSION_EXPIRED_MESSAGE);
+        return;
+      }
       setError(startError instanceof Error ? startError.message : '시작 처리에 실패했어요');
     } finally {
       setIsStartSubmitting(false);
@@ -178,6 +193,10 @@ export default function LobbyScreen({
       await leaveRoom(roomCode);
       onResetSession();
     } catch (leaveError) {
+      if (leaveError instanceof ApiUnauthorizedError) {
+        onResetSession();
+        return;
+      }
       setError(leaveError instanceof Error ? leaveError.message : '방 나가기에 실패했어요');
     } finally {
       setIsLeaving(false);

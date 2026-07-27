@@ -16,7 +16,10 @@ import {
   rejectDeep3Unlock,
   requestDeep3Unlock
 } from '../api/room';
+import { ApiUnauthorizedError } from '../api/client';
 import { mapApiParticipantsToParticipants } from '../mappers/room';
+
+const SESSION_EXPIRED_MESSAGE = '세션이 만료됐어요. 다시 입장해주세요.';
 
 type FieldBubble = {
   id: string;
@@ -213,6 +216,7 @@ export default function BubbleFieldScreen({
   currentUserId,
   setCurrentUserId,
   onParticipantsLoaded,
+  onEventsLoaded,
   onShowCommonGround,
   selectedBubble,
   setSelectedBubble,
@@ -223,11 +227,12 @@ export default function BubbleFieldScreen({
   currentUserId: string;
   setCurrentUserId: (userId: string) => void;
   onParticipantsLoaded: (participants: Participant[]) => void;
+  onEventsLoaded: (events: ApiRoomEvent[]) => void;
   onShowCommonGround: () => void;
   selectedBubble: Interest | null;
   setSelectedBubble: (bubble: Interest | null) => void;
   onNavigate: (screen: Screen) => void;
-  onResetSession: () => void;
+  onResetSession: (message?: string) => void;
 }) {
   const [showNotification, setShowNotification] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState('관심사를 확인했어요!');
@@ -317,6 +322,7 @@ export default function BubbleFieldScreen({
       setParticipants(mappedParticipants);
       onParticipantsLoaded(mappedParticipants);
       setEvents(eventsResponse.events);
+      onEventsLoaded(eventsResponse.events);
       setRoomStatus(roomResponse.room.status);
       setHostUserId(roomResponse.room.hostUserId);
 
@@ -324,6 +330,10 @@ export default function BubbleFieldScreen({
         onNavigate('recommendation');
       }
     } catch (fetchError) {
+      if (fetchError instanceof ApiUnauthorizedError) {
+        onResetSession(SESSION_EXPIRED_MESSAGE);
+        return;
+      }
       setError(fetchError instanceof Error ? fetchError.message : '버블 필드 데이터를 불러오지 못했어요');
     } finally {
       setIsLoading(false);
@@ -331,7 +341,15 @@ export default function BubbleFieldScreen({
         setIsRefreshing(false);
       }
     }
-  }, [roomCode, currentUserId, onParticipantsLoaded, onNavigate, setCurrentUserId]);
+  }, [
+    roomCode,
+    currentUserId,
+    onParticipantsLoaded,
+    onEventsLoaded,
+    onNavigate,
+    setCurrentUserId,
+    onResetSession
+  ]);
 
   useEffect(() => {
     setIsLoading(true);
@@ -538,6 +556,10 @@ export default function BubbleFieldScreen({
       setSelectedParticipant(null);
       await fetchFieldData();
     } catch (actionError) {
+      if (actionError instanceof ApiUnauthorizedError) {
+        onResetSession(SESSION_EXPIRED_MESSAGE);
+        return;
+      }
       setError(actionError instanceof Error ? actionError.message : '상호작용 처리에 실패했어요');
     } finally {
       setIsActionSubmitting(false);
@@ -551,6 +573,10 @@ export default function BubbleFieldScreen({
       setShowNotification(true);
       await fetchFieldData();
     } catch (approveError) {
+      if (approveError instanceof ApiUnauthorizedError) {
+        onResetSession(SESSION_EXPIRED_MESSAGE);
+        return;
+      }
       setError(approveError instanceof Error ? approveError.message : '수락 처리에 실패했어요');
     }
   };
@@ -562,6 +588,10 @@ export default function BubbleFieldScreen({
       setShowNotification(true);
       await fetchFieldData();
     } catch (rejectError) {
+      if (rejectError instanceof ApiUnauthorizedError) {
+        onResetSession(SESSION_EXPIRED_MESSAGE);
+        return;
+      }
       setError(rejectError instanceof Error ? rejectError.message : '거절 처리에 실패했어요');
     }
   };
@@ -572,6 +602,10 @@ export default function BubbleFieldScreen({
       await finishRoom(roomCode);
       onNavigate('recommendation');
     } catch (finishError) {
+      if (finishError instanceof ApiUnauthorizedError) {
+        onResetSession(SESSION_EXPIRED_MESSAGE);
+        return;
+      }
       setError(finishError instanceof Error ? finishError.message : '완료 처리에 실패했어요');
     } finally {
       setIsFinishing(false);
@@ -584,6 +618,10 @@ export default function BubbleFieldScreen({
       await leaveRoom(roomCode);
       onResetSession();
     } catch (leaveError) {
+      if (leaveError instanceof ApiUnauthorizedError) {
+        onResetSession();
+        return;
+      }
       setError(leaveError instanceof Error ? leaveError.message : '방 나가기에 실패했어요');
     } finally {
       setIsLeaving(false);

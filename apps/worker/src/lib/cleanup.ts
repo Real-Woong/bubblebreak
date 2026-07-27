@@ -3,7 +3,11 @@ import type { Env } from "./db";
 const WAITING_TTL_MS = 1000 * 60 * 30;
 const STARTED_TTL_MS = 1000 * 60 * 15;
 const FINISHED_TTL_MS = 1000 * 60 * 5;
-const SESSION_STALE_MS = 1000 * 60 * 2;
+// (Demo배포) DEMO_MODE에서는 프론트가 heartbeat/polling을 아예 보내지 않으므로
+// last_seen_at이 한동안 갱신되지 않는 게 정상이다. 예전 2분 기준은 가만히 보고만
+// 있어도 세션이 끊기는 오탐을 냈다. 방 status TTL(STARTED_TTL_MS=15분)보다는
+// 짧되 충분히 여유 있는 10분으로 둔다.
+const SESSION_STALE_MS = 1000 * 60 * 10;
 
 type RoomCandidate = {
   id: string;

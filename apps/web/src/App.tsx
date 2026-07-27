@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Interest, Participant, Screen } from './types/bubble';
+import type { ApiRoomEvent } from './types/api';
 import EntryScreen from './screens/EntryScreen';
 import SetupScreen from './screens/SetupScreen';
 import LobbyScreen from './screens/LobbyScreen';
 import BubbleFieldScreen from './screens/BubbleFieldScreen';
 import CommonGroundScreen from './screens/CommonGroundScreen';
 import RecommendationScreen from './screens/RecommendationScreen';
-import { buildCommonInterests } from './mocks/commonInterestsMock';
+import { buildMyInteractions } from './mappers/interactions';
 
 type EntryMode = 'create' | 'join';
 
@@ -88,13 +89,19 @@ export default function App() {
   const [showCommonGround, setShowCommonGround] = useState(false);
   const [selectedBubble, setSelectedBubble] = useState<Interest | null>(null);
   const [fieldParticipants, setFieldParticipants] = useState<Participant[]>([]);
+  const [fieldEvents, setFieldEvents] = useState<ApiRoomEvent[]>([]);
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
 
-  const commonInterests = useMemo(
-    () => buildCommonInterests(fieldParticipants, currentUserId),
-    [fieldParticipants, currentUserId]
+  const myInteractions = useMemo(
+    () => buildMyInteractions(fieldEvents, fieldParticipants, currentUserId),
+    [fieldEvents, fieldParticipants, currentUserId]
   );
 
-  const resetSessionState = () => {
+  // BubbleFieldScreen의 fetchFieldData가 이 함수를 의존성 배열에 넣고 있어서,
+  // 매 렌더링마다 새 함수를 만들면 fetchFieldData -> useEffect -> state 갱신 ->
+  // 재렌더링 -> 새 함수 재생성으로 이어지는 무한 요청 루프가 생긴다.
+  // useCallback으로 참조를 고정해서 이 루프를 막는다.
+  const resetSessionState = useCallback((notice?: string) => {
     window.localStorage.removeItem(SESSION_STORAGE_KEY);
     setCurrentScreen('entry');
     setMode(null);
@@ -102,9 +109,11 @@ export default function App() {
     setRoomCodeInput('');
     setCurrentUserId('');
     setFieldParticipants([]);
+    setFieldEvents([]);
     setShowCommonGround(false);
     setSelectedBubble(null);
-  };
+    setSessionNotice(notice ?? null);
+  }, []);
 
   useEffect(() => {
     const hasSessionData =
@@ -143,6 +152,8 @@ export default function App() {
           setRoomCodeInput={setRoomCodeInput}
           setMode={setMode}
           onNavigate={setCurrentScreen}
+          notice={sessionNotice}
+          onDismissNotice={() => setSessionNotice(null)}
         />
       )}
 
@@ -175,6 +186,7 @@ export default function App() {
           currentUserId={currentUserId}
           setCurrentUserId={setCurrentUserId}
           onParticipantsLoaded={setFieldParticipants}
+          onEventsLoaded={setFieldEvents}
           onShowCommonGround={() => setShowCommonGround(true)}
           selectedBubble={selectedBubble}
           setSelectedBubble={setSelectedBubble}
@@ -185,8 +197,7 @@ export default function App() {
 
       {currentScreen === 'recommendation' && (
         <RecommendationScreen
-          commonInterests={commonInterests}
-          participants={fieldParticipants}
+          roomCode={roomCode || roomCodeInput}
           currentUserId={currentUserId}
           onExit={resetSessionState}
         />
@@ -194,7 +205,7 @@ export default function App() {
 
       {showCommonGround && (
         <CommonGroundScreen
-          commonInterests={commonInterests}
+          interactions={myInteractions}
           onClose={() => setShowCommonGround(false)}
         />
       )}

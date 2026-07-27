@@ -6,6 +6,7 @@ import type {
   Deep3RequestResponse,
   GetRoomEventsResponse,
   GetRoomResponse,
+  GetRoomSummaryResponse,
   JoinRoomRequest,
   JoinRoomResponse,
   PopBubbleRequest,
@@ -52,6 +53,10 @@ export function startRoom(roomCode: string) {
 
 export function getRoomEvents(roomCode: string) {
   return apiRequest<GetRoomEventsResponse>(`/rooms/${roomCode}/events`);
+}
+
+export function getRoomSummary(roomCode: string) {
+  return apiRequest<GetRoomSummaryResponse>(`/rooms/${roomCode}/summary`);
 }
 
 export function popBubble(roomCode: string, body: PopBubbleRequest) {

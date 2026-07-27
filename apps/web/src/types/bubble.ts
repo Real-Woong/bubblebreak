@@ -46,20 +46,6 @@ export interface FilledRoomSlot {
 export type RoomSlot = EmptyRoomSlot | FilledRoomSlot;
 
 // ============================================================
-// 공통 관심사
-// ============================================================
-export interface CommonInterest {
-  id: string;
-  interestId: string;
-  interest: string;
-  ownerUserId: string;
-  ownerUserName: string;
-  matchedUserId: string;
-  matchedUserName: string;
-  icebreakers: string[];
-}
-
-// ============================================================
 // 버블 브레이크 이벤트 / 알림
 // ============================================================
 export interface BubbleBreakEvent {
