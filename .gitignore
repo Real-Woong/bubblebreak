@@ -71,3 +71,6 @@ BubbleBreak – Figma Make.html
 DB확인용 명령어.txt
 Mock_DB_추가_명령어.txt
 bubblebreak_map_work.html
+
+# 프로젝트 상태 관리 파일 (MANAGER/collect.sh 가 수집. 로컬 전용)
+_STATUS.md
