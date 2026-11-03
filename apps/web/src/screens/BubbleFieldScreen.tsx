@@ -7,180 +7,23 @@ import BubbleField from '../components/BubbleField';
 import {
   approveDeep3Unlock,
   finishRoom,
-  getRoom,
-  getRoomEvents,
-  getRoomMe,
-  heartbeat,
   leaveRoom,
   popBubble,
   rejectDeep3Unlock,
   requestDeep3Unlock
 } from '../api/room';
 import { ApiUnauthorizedError } from '../api/client';
-import { mapApiParticipantsToParticipants } from '../mappers/room';
+import {
+  buildWorldLayout,
+  getBubbleMotionValues,
+  type FieldBubble
+} from '../features/bubble-field/fieldLayout';
+import { useRoomPolling } from '../features/bubble-field/useRoomPolling';
 
 const SESSION_EXPIRED_MESSAGE = '세션이 만료됐어요. 다시 입장해주세요.';
 
-type FieldBubble = {
-  id: string;
-  interest: Interest;
-  participantId: string;
-  participantName: string;
-  worldX: number;
-  worldY: number;
-  size: number;
-  isMine: boolean;
-};
-
 const HEADER_HEIGHT = 72;
-// (Demo배포)
-// 데모 배포에서는 자동 polling / heartbeat를 꺼서 request 수를 최소화합니다.
 const DEMO_MODE = appEnv.demoMode;
-const ROOM_POLLING_INTERVAL_MS = appEnv.fieldRoomPollingIntervalMs;
-const HEARTBEAT_INTERVAL_MS = appEnv.fieldHeartbeatIntervalMs;
-const CLUSTER_SPREAD_X = 260;
-const CLUSTER_SPREAD_Y = 190;
-const MIN_BUBBLE_SIZE = 104;
-const MAX_BUBBLE_SIZE = 156;
-const MIN_BUBBLE_GAP = 28;
-const LEVEL_RADIUS: Record<Interest['level'], number> = {
-  deep1: 120,
-  deep2: 220,
-  deep3: 320
-};
-
-function seededRandom(seed: number) {
-  const x = Math.sin(seed) * 10000;
-  return x - Math.floor(x);
-}
-
-function bubblesOverlap(
-  a: { x: number; y: number; size: number },
-  b: { x: number; y: number; size: number }
-) {
-  const distance = Math.hypot(a.x - b.x, a.y - b.y);
-  return distance < a.size / 2 + b.size / 2 + MIN_BUBBLE_GAP;
-}
-
-function findNonOverlappingPosition(
-  center: { x: number; y: number },
-  size: number,
-  preferredRadius: number,
-  placedBubbles: Array<{ x: number; y: number; size: number }>,
-  seedBase: number
-) {
-  for (let ring = 0; ring < 16; ring += 1) {
-    const radius = preferredRadius + ring * 34;
-    const steps = 18 + ring * 6;
-
-    for (let step = 0; step < steps; step += 1) {
-      const randomOffset = seededRandom(seedBase + ring * 101 + step * 17) * 0.18;
-      const angle = ((step / steps) * Math.PI * 2) + randomOffset;
-      const candidate = {
-        x: center.x + Math.cos(angle) * radius,
-        y: center.y + Math.sin(angle) * radius,
-        size
-      };
-
-      if (placedBubbles.every((existingBubble) => !bubblesOverlap(existingBubble, candidate))) {
-        return candidate;
-      }
-    }
-  }
-
-  return null;
-}
-
-function buildWorldLayout(participants: Participant[], currentUserId: string) {
-  const participantCount = Math.max(participants.length, 1);
-  const clusters: Record<string, { x: number; y: number }> = {};
-
-  participants.forEach((participant, index) => {
-    const angle = (index / participantCount) * Math.PI * 2 - Math.PI / 2;
-    const ellipseRadiusX = participantCount <= 2 ? 180 : CLUSTER_SPREAD_X;
-    const ellipseRadiusY = participantCount <= 2 ? 135 : CLUSTER_SPREAD_Y;
-
-    clusters[participant.id] = {
-      x: Math.cos(angle) * ellipseRadiusX,
-      y: Math.sin(angle) * ellipseRadiusY
-    };
-  });
-
-  const bubbles: FieldBubble[] = [];
-  const placedBubbles: Array<{ x: number; y: number; size: number }> = [];
-
-  participants.forEach((participant, participantIndex) => {
-    const center = clusters[participant.id];
-
-    participant.interests.forEach((interest, idx) => {
-      const size = Math.max(MIN_BUBBLE_SIZE, MAX_BUBBLE_SIZE - idx * 8);
-      const preferredRadius = LEVEL_RADIUS[interest.level];
-      const seedBase =
-        participantIndex * 1000 +
-        idx * 100 +
-        participant.name.length * 17 +
-        participant.id.length * 29;
-
-      let placedBubble = findNonOverlappingPosition(
-        center,
-        size,
-        preferredRadius,
-        placedBubbles,
-        seedBase
-      );
-
-      if (!placedBubble) {
-        placedBubble = findNonOverlappingPosition(
-          center,
-          size,
-          preferredRadius + 120,
-          placedBubbles,
-          seedBase + 999
-        );
-      }
-
-      if (!placedBubble) {
-        placedBubble = {
-          x: center.x + participantIndex * 120 + idx * 52,
-          y: center.y + participantIndex * 80 + idx * 64,
-          size
-        };
-      }
-
-      placedBubbles.push(placedBubble);
-      bubbles.push({
-        id: `${participant.id}-${interest.id}`,
-        interest,
-        participantId: participant.id,
-        participantName: participant.name,
-        worldX: placedBubble.x,
-        worldY: placedBubble.y,
-        size: placedBubble.size,
-        isMine: participant.id === currentUserId
-      });
-    });
-  });
-
-  return bubbles;
-}
-
-function getBubbleMotionValues(bubble: FieldBubble, index: number) {
-  const floatDuration = 6.8 + seededRandom(index * 37 + bubble.participantId.length * 19) * 2.6;
-  const swayDuration = 5.4 + seededRandom(index * 41 + bubble.participantName.length * 11) * 1.8;
-  const floatX = Math.round(8 + seededRandom(index * 71 + bubble.size) * 10);
-  const floatY = Math.round(12 + seededRandom(index * 89 + bubble.size) * 14);
-  const rotateDeg = (1.8 + seededRandom(index * 61 + bubble.size * 3) * 2.4).toFixed(2);
-  const delay = -(seededRandom(index * 29 + bubble.interest.id.length * 17) * 4.8);
-
-  return {
-    floatDuration,
-    swayDuration,
-    floatX,
-    floatY,
-    rotateDeg,
-    delay
-  };
-}
 
 function getEventLabel(event: ApiRoomEvent, participants: Participant[], currentUserId: string) {
   const source = participants.find((participant) => participant.id === event.sourceUserId)?.name ?? '누군가';
@@ -244,18 +87,31 @@ export default function BubbleFieldScreen({
     width: window.innerWidth,
     height: window.innerHeight - HEADER_HEIGHT
   });
-  const [participants, setParticipants] = useState<Participant[]>([]);
-  const [events, setEvents] = useState<ApiRoomEvent[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [roomStatus, setRoomStatus] = useState<string>('');
-  const [hostUserId, setHostUserId] = useState('');
   const [isActionSubmitting, setIsActionSubmitting] = useState(false);
   const [isActivityOpen, setIsActivityOpen] = useState(false);
   const [recommendationInterest, setRecommendationInterest] = useState<string | null>(null);
   const [isFinishing, setIsFinishing] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const {
+    participants,
+    events,
+    isLoading,
+    isRefreshing,
+    error,
+    setError,
+    roomStatus,
+    hostUserId,
+    refresh: fetchFieldData
+  } = useRoomPolling({
+    roomCode,
+    currentUserId,
+    setCurrentUserId,
+    onParticipantsLoaded,
+    onEventsLoaded,
+    onNavigate,
+    onResetSession
+  });
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const activePointerIdRef = useRef<number | null>(null);
@@ -309,114 +165,6 @@ export default function BubbleFieldScreen({
       y: (minY + maxY) / 2
     };
   }, [fieldBubbles]);
-
-  const fetchFieldData = useCallback(async (options?: { showRefreshing?: boolean }) => {
-    if (!roomCode) return;
-
-    try {
-      if (options?.showRefreshing) {
-        setIsRefreshing(true);
-      }
-
-      setError(null);
-
-      const [roomResponse, eventsResponse] = await Promise.all([
-        getRoom(roomCode),
-        getRoomEvents(roomCode)
-      ]);
-
-      if (!currentUserId) {
-        const me = await getRoomMe(roomCode);
-        setCurrentUserId(me.me.userId);
-      }
-
-      const mappedParticipants = mapApiParticipantsToParticipants(roomResponse.participants);
-
-      setParticipants(mappedParticipants);
-      onParticipantsLoaded(mappedParticipants);
-      setEvents(eventsResponse.events);
-      onEventsLoaded(eventsResponse.events);
-      setRoomStatus(roomResponse.room.status);
-      setHostUserId(roomResponse.room.hostUserId);
-
-      if (roomResponse.room.status === 'finished') {
-        onNavigate('recommendation');
-      }
-    } catch (fetchError) {
-      if (fetchError instanceof ApiUnauthorizedError) {
-        onResetSession(SESSION_EXPIRED_MESSAGE);
-        return;
-      }
-      setError(fetchError instanceof Error ? fetchError.message : '버블 필드 데이터를 불러오지 못했어요');
-    } finally {
-      setIsLoading(false);
-      if (options?.showRefreshing) {
-        setIsRefreshing(false);
-      }
-    }
-  }, [
-    roomCode,
-    currentUserId,
-    onParticipantsLoaded,
-    onEventsLoaded,
-    onNavigate,
-    setCurrentUserId,
-    onResetSession
-  ]);
-
-  useEffect(() => {
-    setIsLoading(true);
-    void fetchFieldData();
-
-    // (Demo배포)
-    // !! polling 주의 !!
-    // 데모 배포에서는 자동 polling을 꺼서 room / event 요청 급증을 막아요.
-    if (DEMO_MODE) {
-      return;
-    }
-
-    // (정식배포)
-    // 버블 필드가 열려 있는 동안만 room / event를 다시 읽어요.
-    // 요청 수가 빠르게 늘 수 있어서 5초 간격으로 조절했습니다.
-    const intervalId = window.setInterval(() => {
-      void fetchFieldData();
-    }, ROOM_POLLING_INTERVAL_MS);
-
-    return () => window.clearInterval(intervalId);
-  }, [fetchFieldData]);
-
-  useEffect(() => {
-    // (Demo배포)
-    // !! heartbeat 주의 !!
-    // 데모 배포에서는 heartbeat도 멈춰서 불필요한 주기 요청을 막아요.
-    if (DEMO_MODE) {
-      return;
-    }
-
-    // (정식배포)
-    // 이 신호는 "아직 이 사용자가 페이지를 보고 있어요"에 가까운 생존 신호예요.
-    // polling과 별개로 세션 정리 기준이 되므로 너무 짧게 보내지 않도록 30초로 둡니다.
-    const heartbeatInterval = window.setInterval(() => {
-      void heartbeat(roomCode).catch(() => {
-        // no-op
-      });
-    }, HEARTBEAT_INTERVAL_MS);
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        void heartbeat(roomCode).catch(() => {
-          // no-op
-        });
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      window.clearInterval(heartbeatInterval);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [roomCode]);
 
   useEffect(() => {
     const acceptedEvents = events.filter(
