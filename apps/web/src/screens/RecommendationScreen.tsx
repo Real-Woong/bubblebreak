@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, MessageCircle, Sparkles } from 'lucide-react';
+import { ArrowLeft, Sparkles } from 'lucide-react';
 import type { ApiRoomSummaryPair } from '../types/api';
 import { getRoomSummary } from '../api/room';
 import { ApiUnauthorizedError } from '../api/client';
@@ -9,17 +9,10 @@ const SESSION_EXPIRED_MESSAGE = '세션이 만료됐어요. 다시 입장해주�
 
 type MutualMatch = {
   id: string;
-  userAName: string;
-  userBName: string;
+  // 나와 같은 관심사를 가진 상대
+  partnerName: string;
   interestText: string;
   icebreakers: string[];
-};
-
-type OneWayReveal = {
-  id: string;
-  sourceName: string;
-  targetName: string;
-  interestText: string | null;
 };
 
 function buildIcebreakers(text: string): string[] {
@@ -30,41 +23,36 @@ function buildIcebreakers(text: string): string[] {
   ];
 }
 
-function buildMatches(pairs: ApiRoomSummaryPair[]) {
-  const mutualMatches: MutualMatch[] = [];
-  const oneWayReveals: OneWayReveal[] = [];
+// 마무리 화면은 "나와 관심사가 같은 사람"만 보여준다.
+// - 내가 속하지 않은 쌍(다른 사람들끼리의 매칭)은 제외
+// - 한쪽만 확인한 반응(oneWay)은 노출하지 않는다 (누가 내 버블을 봤는지 알려주지 않음)
+function buildMyMatches(pairs: ApiRoomSummaryPair[], currentUserId: string): MutualMatch[] {
+  const matches: MutualMatch[] = [];
 
   pairs.forEach((pair) => {
+    const isA = pair.userAId === currentUserId;
+    const isB = pair.userBId === currentUserId;
+    if (!isA && !isB) return;
+
+    const partnerName = isA ? pair.userBName : pair.userAName;
+
     pair.items.forEach((item, idx) => {
-      if (item.kind === 'mutual') {
-        if (!item.interestText) return;
-        mutualMatches.push({
-          id: `${pair.userAId}-${pair.userBId}-${idx}`,
-          userAName: pair.userAName,
-          userBName: pair.userBName,
-          interestText: item.interestText,
-          icebreakers: buildIcebreakers(item.interestText)
-        });
-        return;
-      }
-
-      const sourceName = item.sourceUserId === pair.userAId ? pair.userAName : pair.userBName;
-      const targetName = item.targetUserId === pair.userAId ? pair.userAName : pair.userBName;
-
-      oneWayReveals.push({
+      if (item.kind !== 'mutual' || !item.interestText) return;
+      matches.push({
         id: `${pair.userAId}-${pair.userBId}-${idx}`,
-        sourceName,
-        targetName,
-        interestText: item.interestText
+        partnerName,
+        interestText: item.interestText,
+        icebreakers: buildIcebreakers(item.interestText)
       });
     });
   });
 
-  return { mutualMatches, oneWayReveals };
+  return matches;
 }
 
 export default function RecommendationScreen({
   roomCode,
+  currentUserId,
   onExit
 }: {
   roomCode: string;
@@ -111,7 +99,7 @@ export default function RecommendationScreen({
     };
   }, [roomCode, onExit]);
 
-  const { mutualMatches, oneWayReveals } = useMemo(() => buildMatches(pairs), [pairs]);
+  const myMatches = useMemo(() => buildMyMatches(pairs, currentUserId), [pairs, currentUserId]);
 
   return (
     <div className="min-h-screen px-5 py-8 bg-gradient-to-b from-purple-50 via-pink-50 to-white">
@@ -146,69 +134,41 @@ export default function RecommendationScreen({
 
         {!isLoading && !error && (
           <div className="space-y-4 mb-8">
-            {mutualMatches.map((match) => (
+            {myMatches.map((match) => (
               <div
                 key={match.id}
                 className="bg-white rounded-3xl p-5 shadow-sm border-2 border-purple-100"
               >
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="flex items-center">
-                    <div className="w-10 h-10 bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center text-white font-semibold z-10">
-                      {match.userAName.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-cyan-400 rounded-full flex items-center justify-center text-white font-semibold -ml-3">
-                      {match.userBName.charAt(0).toUpperCase()}
-                    </div>
+                  <div className="w-10 h-10 bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center text-white font-semibold shrink-0">
+                    {match.partnerName.charAt(0).toUpperCase()}
                   </div>
 
-                  <div className="flex-1">
-                    <p className="text-sm text-gray-600">
-                      {match.userAName} + {match.userBName}
-                    </p>
-                    <p className="font-bold text-purple-600 text-lg">{match.interestText}</p>
-                  </div>
+                  <p className="text-sm text-gray-700 leading-relaxed">
+                    <span className="font-semibold">{match.partnerName}</span>님도{' '}
+                    <span className="font-bold text-purple-700">{match.interestText}</span>에 관심이 있어요
+                  </p>
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-xs text-gray-500 font-medium mb-2">💬 대화 시작하기</p>
+                  <p className="text-xs text-gray-600 font-medium mb-2">💬 대화 시작하기</p>
                   {match.icebreakers.map((icebreaker, idx) => (
-                    <button
+                    <div
                       key={`${match.id}-${idx}`}
-                      className="w-full bg-gradient-to-r from-purple-50 to-pink-50 hover:from-purple-100 hover:to-pink-100 text-gray-700 px-4 py-3 rounded-2xl text-sm text-left border border-purple-100 active:scale-98 transition-all"
+                      className="w-full bg-gradient-to-r from-purple-50 to-pink-50 text-gray-700 px-4 py-3 rounded-2xl text-sm text-left border border-purple-100"
                     >
                       {icebreaker}
-                    </button>
+                    </div>
                   ))}
                 </div>
               </div>
             ))}
 
-            {mutualMatches.length === 0 && (
-              <div className="bg-white rounded-3xl px-5 py-6 border border-purple-100 shadow-sm text-center text-sm text-gray-500">
-                이번 방에서는 서로 같은 관심사를 확인한 기록이 없어요.
-              </div>
-            )}
-
-            {oneWayReveals.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-gray-500 px-1">그 외 있었던 반응들</p>
-                {oneWayReveals.map((reveal) => (
-                  <div
-                    key={reveal.id}
-                    className="bg-white rounded-3xl px-5 py-4 border border-purple-100 shadow-sm"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center shrink-0">
-                        <MessageCircle className="w-4 h-4 text-purple-600" />
-                      </div>
-                      <p className="text-sm leading-relaxed text-gray-700">
-                        {reveal.interestText
-                          ? `${reveal.sourceName}가 ${reveal.targetName}의 '${reveal.interestText}'를 확인했어요`
-                          : `${reveal.sourceName}가 ${reveal.targetName}의 비공개 관심사를 확인했어요`}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+            {myMatches.length === 0 && (
+              <div className="bg-white rounded-3xl px-5 py-6 border border-purple-100 shadow-sm text-center text-sm text-gray-600">
+                이번에는 나와 같은 관심사를 서로 확인한 사람이 없어요.
+                <br />
+                직접 말을 걸어 새로운 공통점을 찾아보세요!
               </div>
             )}
           </div>
