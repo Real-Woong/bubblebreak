@@ -70,8 +70,12 @@ function getRestoredScreen(savedSession: SavedSessionState | null): Screen {
     return 'setup';
   }
 
+  // 요약(recommendation)도 복원한다. 새로고침해도 방이 아직 남아 있으면 요약을 다시 볼 수 있다.
+  // (방이 이미 정리됐으면 아래 서버 검증에서 404로 걸러져 홈으로 돌아간다.)
   if (
-    (savedSession.currentScreen === 'lobby' || savedSession.currentScreen === 'field') &&
+    (savedSession.currentScreen === 'lobby' ||
+      savedSession.currentScreen === 'field' ||
+      savedSession.currentScreen === 'recommendation') &&
     savedRoomCode
   ) {
     return savedSession.currentScreen;
@@ -118,7 +122,7 @@ export default function App() {
   // 저장된 방(대기실/필드)을 복원하는 경우, 서버에서 유효한지 확인하기 전까지는 화면을 보여주지 않는다.
   const [isRestoring, setIsRestoring] = useState(() => {
     const screen = getRestoredScreen(savedSession);
-    return screen === 'lobby' || screen === 'field';
+    return screen === 'lobby' || screen === 'field' || screen === 'recommendation';
   });
   const [nickname, setNickname] = useState(savedSession?.nickname ?? '');
   const [mode, setMode] = useState<EntryMode | null>(savedSession?.mode ?? null);
@@ -187,7 +191,9 @@ export default function App() {
     (async () => {
       try {
         await getRoom(code, { signal: controller.signal });
-        await getRoomMe(code, { signal: controller.signal });
+        const me = await getRoomMe(code, { signal: controller.signal });
+        // 요약 화면은 내 userId로 내 매칭만 걸러서 보여주므로, 저장된 값이 비어 있으면 채워둔다.
+        if (!controller.signal.aborted) setCurrentUserId((prev) => prev || me.me.userId);
       } catch (error) {
         if (controller.signal.aborted) return;
         // 네트워크 오류 등 일시적 문제는 세션을 유지하고 화면 쪽 폴링에 맡긴다.

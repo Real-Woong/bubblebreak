@@ -538,7 +538,7 @@ export default function BubbleFieldScreen({
                           : '아직 표시할 버블 데이터가 없어요'}
                     </p>
                     <p className="mt-1 text-xs text-gray-500">
-                      {error ?? '현재 room participants 기준으로 버블을 구성하고 있어요'}
+                      {error ?? '참여자들의 관심사로 버블을 만들고 있어요'}
                     </p>
                   </div>
                 </div>
