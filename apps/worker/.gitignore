@@ -11,3 +11,6 @@
 
 #!.yarn/cache
 .pnp.*
+
+# e2e 번들 산출물
+test/.tmp/

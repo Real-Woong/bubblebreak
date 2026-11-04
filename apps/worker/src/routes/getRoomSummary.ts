@@ -2,6 +2,7 @@ import type { Env } from "../lib/db";
 import { jsonResponse } from "../lib/http";
 import { getRoomByCode } from "../lib/rooms";
 import { getSessionContext, touchSession } from "../lib/session";
+import { filterSummaryForViewer } from "../lib/anonymity";
 
 type ParticipantRow = {
   userId: string;
@@ -198,9 +199,14 @@ export async function getRoomSummaryRoute(request: Request, env: Env): Promise<R
 
     await touchSession(env, session.sessionId, new Date().toISOString());
 
+    // 요약은 "나와 관심사가 같은 사람"만 보여준다.
+    // 다른 사람들끼리의 매칭과, 한쪽만 확인한 반응(oneWay)은 서버에서 제외한다.
     return jsonResponse({
       ok: true,
-      pairs: pairs.map(({ key: _key, ...pair }) => pair),
+      pairs: filterSummaryForViewer(
+        pairs.map(({ key: _key, ...pair }) => pair),
+        viewerUserId
+      ),
     });
   } catch (error) {
     console.error(error);

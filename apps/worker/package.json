@@ -6,7 +6,9 @@
     "typecheck": "tsc --noEmit",
     "build:web": "VITE_API_BASE_URL= yarn --cwd ../web build",
     "deploy": "wrangler deploy",
-    "deploy:with-web": "yarn build:web && wrangler deploy"
+    "deploy:with-web": "yarn build:web && wrangler deploy",
+    "test": "node --test \"src/**/*.test.ts\"",
+    "test:e2e": "node --disable-warning=ExperimentalWarning test/e2e-anonymity.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260320.0",

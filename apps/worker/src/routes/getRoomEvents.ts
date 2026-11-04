@@ -1,6 +1,7 @@
 import type { Env } from "../lib/db";
 import { jsonResponse } from "../lib/http";
-import { getRoomByCode } from "../lib/rooms";
+import { getRoomByCode, loadAnonIdMap } from "../lib/rooms";
+import { anonymizeEvents, isAnonymousPhase } from "../lib/anonymity";
 import { getSessionContext, touchSession } from "../lib/session";
 import type { ApiRoomEventRow } from "../lib/events";
 
@@ -52,9 +53,13 @@ export async function getRoomEventsRoute(request: Request, env: Env): Promise<Re
 
     await touchSession(env, session.sessionId, new Date().toISOString());
 
+    const events = result.results ?? [];
+    const anonIds = isAnonymousPhase(room.status) ? await loadAnonIdMap(env, room.id) : new Map<string, string>();
+
     return jsonResponse({
       ok: true,
-      events: result.results ?? [],
+      // 게임 중에는 상대 userId 를 anonId 로 바꿔서 내려준다.
+      events: isAnonymousPhase(room.status) ? anonymizeEvents(events, session.userId, anonIds) : events,
     });
   } catch (error) {
     console.error(error);

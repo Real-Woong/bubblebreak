@@ -28,6 +28,15 @@
 - [ ] 요약(완료) 화면에서 새로고침 → 방이 남아 있으면 요약이 다시 보임, 방이 정리된 뒤(약 5분)면 홈 + 안내 문구
 - [ ] 버블 필드 로딩 화면에 영어 문구("room participants")가 없음
 
+## 서버 익명화 (필드 단계)
+자동 검증: `yarn workspace @bubblebreak/worker test` (단위) · `yarn workspace @bubblebreak/worker test:e2e` (실제 Worker 코드를 SQLite 위에서 전체 흐름 실행)
+- [ ] 대기실에서는 닉네임이 보이고, 방 시작 후 버블 필드에서는 다른 사람이 "익명 고양이" 같은 별칭으로만 보임
+- [ ] 필드의 Network 탭(`GET /rooms/:code`, `/events`)에 다른 사람의 닉네임/실제 userId가 없음 (userId는 `a_…` 형태)
+- [ ] 방장이 아닌 계정의 `room.hostUserId` 가 빈 문자열
+- [ ] 버블 터뜨리기 / 비밀 취향 요청 / 수락 동작 (별칭 ID로 대상 지정)
+- [ ] 완료 화면에서만 실제 닉네임으로 "OO님도 맛집에 관심이 있어요" 표시
+- [ ] 완료 화면의 `/summary` 응답에 내가 속하지 않은 쌍과 한쪽만 확인한 항목(oneWay)이 없음
+
 ## P2
 - [ ] `https://<host>/og-image.png` 가 1200×630 으로 열림 (현재는 로고 기반 플레이스홀더). 카드 미리보기에서 summary_large_image 확인
 

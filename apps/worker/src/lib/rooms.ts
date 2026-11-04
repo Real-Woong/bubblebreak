@@ -2,6 +2,7 @@ import type { Env } from "./db";
 import { jsonResponse } from "./http";
 import type { StoredInterest } from "./interests";
 import type { SessionContext } from "./session";
+import { buildAnonIdMap, isAnonymousPhase, resolveAnonTarget } from "./anonymity";
 
 type RoomRow = {
   id: string;
@@ -23,6 +24,35 @@ type ParticipantRow = {
 type AllowedInterestRow = {
   interest_id: string;
 };
+
+// 방 참여자의 anonId 맵(userId -> anonId)을 만든다. (게임 시작 이후 익명 응답에 쓴다)
+export async function loadAnonIdMap(env: Env, roomId: string) {
+  const result = await env.DB.prepare(
+    `
+    SELECT user_id as userId, id as participantId
+    FROM room_participants
+    WHERE room_id = ?
+    `
+  )
+    .bind(roomId)
+    .all<{ userId: string; participantId: string }>();
+
+  return buildAnonIdMap(roomId, result.results ?? []);
+}
+
+// 요청 body 의 대상 id 를 실제 userId 로 바꾼다.
+// - 대기실(waiting)에서는 익명 처리 전이므로 그대로 쓴다.
+// - 게임 중에는 anonId 만 허용한다. (실제 userId 를 받으면 userId -> 별칭 확인 수단이 된다)
+export async function resolveTargetUserId(
+  env: Env,
+  room: { id: string; status: string },
+  viewerUserId: string,
+  rawTargetId: string
+) {
+  if (!isAnonymousPhase(room.status)) return rawTargetId;
+  const anonIds = await loadAnonIdMap(env, room.id);
+  return resolveAnonTarget(rawTargetId, viewerUserId, anonIds);
+}
 
 export async function getRoomByCode(env: Env, roomCode: string) {
   return env.DB.prepare(

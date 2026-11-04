@@ -1,6 +1,6 @@
 import type { Env } from "../lib/db";
 import { jsonResponse } from "../lib/http";
-import { getRoomByCode, touchRoomActivity } from "../lib/rooms";
+import { getRoomByCode, resolveTargetUserId, touchRoomActivity } from "../lib/rooms";
 import { getSessionContext, touchSession } from "../lib/session";
 
 type PopBody = {
@@ -41,11 +41,21 @@ export async function popBubbleRoute(request: Request, env: Env): Promise<Respon
     }
 
     const body = (await request.json()) as PopBody;
-    const targetUserId = body.targetUserId?.trim();
+    const rawTargetId = body.targetUserId?.trim();
     const interestId = body.interestId?.trim();
 
-    if (!targetUserId || !interestId) {
+    if (!rawTargetId || !interestId) {
       return jsonResponse({ ok: false, message: "targetUserId and interestId are required" }, 400);
+    }
+
+    if (rawTargetId === session.userId) {
+      return jsonResponse({ ok: false, message: "Cannot pop your own bubble" }, 409);
+    }
+
+    // 게임 중에는 요청의 targetUserId 가 anonId 이므로 실제 userId 로 바꿔서 쓴다.
+    const targetUserId = await resolveTargetUserId(env, room, session.userId, rawTargetId);
+    if (!targetUserId) {
+      return jsonResponse({ ok: false, message: "Target participant not found" }, 404);
     }
 
     if (targetUserId === session.userId) {
