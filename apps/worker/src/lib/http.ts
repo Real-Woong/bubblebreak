@@ -10,3 +10,9 @@ export function jsonResponse(body: unknown, status = 200): Response {
     },
   });
 }
+
+// 에러 응답을 { error: { code, message } } 형태로 통일하기 위한 헬퍼.
+// 기존 라우트가 쓰는 { ok: false, message } 형태와도 호환되도록 두 필드를 함께 내려준다.
+export function jsonError(code: string, message: string, status: number): Response {
+  return jsonResponse({ ok: false, message, error: { code, message } }, status);
+}

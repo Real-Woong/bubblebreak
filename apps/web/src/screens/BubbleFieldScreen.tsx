@@ -13,6 +13,7 @@ import {
   requestDeep3Unlock
 } from '../api/room';
 import { ApiUnauthorizedError } from '../api/client';
+import { isSessionGoneError } from '../api/errors';
 import {
   buildWorldLayout,
   getBubbleMotionValues,
@@ -102,7 +103,9 @@ export default function BubbleFieldScreen({
     setError,
     roomStatus,
     hostUserId,
-    refresh: fetchFieldData
+    refresh: fetchFieldData,
+    stopPolling,
+    resumePolling
   } = useRoomPolling({
     roomCode,
     currentUserId,
@@ -413,15 +416,22 @@ export default function BubbleFieldScreen({
   };
 
   const handleLeave = async () => {
+    if (isLeaving) return;
+
+    // 폴링을 먼저 멈춰서 in-flight 응답이 나가기 이후 상태를 건드리지 못하게 한다.
+    stopPolling();
+
     try {
       setIsLeaving(true);
       await leaveRoom(roomCode);
       onResetSession();
     } catch (leaveError) {
-      if (leaveError instanceof ApiUnauthorizedError) {
+      if (isSessionGoneError(leaveError)) {
         onResetSession();
         return;
       }
+      // 나가기에 실패했으니 폴링을 다시 켠다.
+      resumePolling();
       setError(leaveError instanceof Error ? leaveError.message : '방 나가기에 실패했어요');
     } finally {
       setIsLeaving(false);
@@ -461,6 +471,7 @@ export default function BubbleFieldScreen({
               void handleLeave();
             }}
             disabled={isLeaving}
+            aria-label="뒤로가기"
             className="w-9 h-9 shrink-0 bg-white rounded-full border border-purple-100 shadow-sm flex items-center justify-center active:scale-95 transition-transform disabled:opacity-50"
           >
             <ArrowLeft className="w-4 h-4 text-gray-600" />
@@ -608,6 +619,7 @@ export default function BubbleFieldScreen({
       <div className="fixed bottom-6 left-5 z-50 flex gap-3">
         <button
           onClick={() => setIsActivityOpen((prev) => !prev)}
+          aria-label="활동 패널 열기"
           className="w-14 h-14 bg-white/95 rounded-full shadow-xl border border-purple-100 flex items-center justify-center active:scale-95 transition-transform"
         >
           <Users className="w-6 h-6 text-purple-600" />
@@ -617,6 +629,7 @@ export default function BubbleFieldScreen({
             void handleLeave();
           }}
           disabled={isLeaving}
+          aria-label="방 나가기"
           className="w-14 h-14 bg-gray-900 rounded-full shadow-xl flex items-center justify-center active:scale-95 transition-transform disabled:opacity-50"
         >
           <LogOut className="w-5 h-5 text-white" />
@@ -638,6 +651,7 @@ export default function BubbleFieldScreen({
 
         <button
           onClick={onShowCommonGround}
+          aria-label="공통점 보기"
           className="w-14 h-14 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full shadow-xl shadow-purple-300/50 flex items-center justify-center active:scale-95 transition-transform"
           style={{ touchAction: 'manipulation' }}
         >

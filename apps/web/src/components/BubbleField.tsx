@@ -1,5 +1,6 @@
 import { Lock } from 'lucide-react';
 import type { Interest } from '../types/bubble';
+import { fitBubbleText } from '../lib/fitBubbleText';
 
 // BubbleBreak 시그니처 팔레트
 // Setup 화면과 같은 계열을 유지하되,
@@ -57,24 +58,6 @@ function getBubbleDepthOverlayStyle() {
   };
 }
 
-function getAdaptiveFontSize(text: string, baseSize: number, sizePx: number) {
-  let fontSize = baseSize;
-
-  // 대략 한 줄에 들어갈 수 있는 글자 수 (경험적 값)
-  const getCharsPerLine = (fs: number) => Math.floor((sizePx * 0.82) / (fs * 0.56));
-
-  // 목표: 2줄 안에 들어가도록
-  while (fontSize > 9) {
-    const charsPerLine = getCharsPerLine(fontSize);
-    const requiredLines = Math.ceil(text.length / charsPerLine);
-
-    if (requiredLines <= 2) break;
-    fontSize -= 1;
-  }
-
-  return fontSize;
-}
-
 export default function BubbleField({
   interest,
   sizePx,
@@ -91,6 +74,8 @@ export default function BubbleField({
   onTap: () => void;
 }) {
   const baseFontSize = Math.max(16, Math.round(sizePx * 0.14));
+  // 원 안에 들어가도록 폰트 크기/줄 수를 계산한다. (한글 폭 기준)
+  const fit = fitBubbleText(interest.text, sizePx, { baseFontSize, minFontSize: 9, maxLines: 3 });
   return (
     <div
       onClick={() => {
@@ -157,15 +142,15 @@ export default function BubbleField({
         ) : interest.level === 'deep2' ? (
           <span
             style={{
-              fontSize: `${getAdaptiveFontSize(interest.text, baseFontSize, sizePx)}px`,
+              fontSize: `${fit.fontSize}px`,
               fontWeight: 700,
               lineHeight: 1.14,
-              wordBreak: 'break-word',
+              wordBreak: 'keep-all',
               overflowWrap: 'anywhere',
-              maxWidth: `${sizePx * 0.82}px`,
+              maxWidth: `${fit.maxWidth}px`,
               textAlign: 'center',
               display: '-webkit-box',
-              WebkitLineClamp: 2,
+              WebkitLineClamp: fit.lineClamp,
               WebkitBoxOrient: 'vertical',
               overflow: 'hidden'
             }}
@@ -176,15 +161,15 @@ export default function BubbleField({
         ) : (
           <span
             style={{
-              fontSize: `${getAdaptiveFontSize(interest.text, baseFontSize, sizePx)}px`,
+              fontSize: `${fit.fontSize}px`,
               fontWeight: 700,
               lineHeight: 1.14,
-              wordBreak: 'break-word',
+              wordBreak: 'keep-all',
               overflowWrap: 'anywhere',
-              maxWidth: `${sizePx * 0.82}px`,
+              maxWidth: `${fit.maxWidth}px`,
               textAlign: 'center',
               display: '-webkit-box',
-              WebkitLineClamp: 2,
+              WebkitLineClamp: fit.lineClamp,
               WebkitBoxOrient: 'vertical',
               overflow: 'hidden'
             }}

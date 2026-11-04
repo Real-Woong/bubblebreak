@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Check, Copy, LogOut, Users, ChevronRight, RefreshCw } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, Check, Copy, Link2, LogOut, Share2, Users, ChevronRight, RefreshCw } from 'lucide-react';
 import { appEnv } from '../config/env';
 import type { Screen } from '../types/bubble';
 import { getRoom, getRoomMe, leaveRoom, readyRoom, startRoom } from '../api/room';
 import { ApiUnauthorizedError } from '../api/client';
+import { isAbortError, isSessionGoneError, sessionGoneMessage } from '../api/errors';
+import { buildInviteLink } from '../lib/roomCode';
 import { mapApiParticipantsToRoomSlots } from '../mappers/room';
 
 const SESSION_EXPIRED_MESSAGE = '세션이 만료됐어요. 다시 입장해주세요.';
@@ -36,9 +38,17 @@ export default function LobbyScreen({
   const [isStartSubmitting, setIsStartSubmitting] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  // 폴링/조회의 수명을 관리하는 컨트롤러.
+  // 나가기 · 언마운트 · 세션 정리 시 abort해서 in-flight 응답이 화면 전환을 일으키지 못하게 한다.
+  const controllerRef = useRef<AbortController | null>(null);
+  // 나가기 실패 후 폴링을 다시 켤 때 effect를 재실행하기 위한 카운터
+  const [pollEpoch, setPollEpoch] = useState(0);
 
   const fetchRoom = async (options?: { showRefreshing?: boolean }) => {
-    if (!roomCode) return;
+    const signal = controllerRef.current?.signal;
+    if (!roomCode || !signal || signal.aborted) return;
 
     try {
       if (options?.showRefreshing) {
@@ -48,11 +58,13 @@ export default function LobbyScreen({
       setError(null);
 
       if (!currentUserId) {
-        const me = await getRoomMe(roomCode);
+        const me = await getRoomMe(roomCode, { signal });
+        if (signal.aborted) return;
         setCurrentUserId(me.me.userId);
       }
 
-      const response = await getRoom(roomCode);
+      const response = await getRoom(roomCode, { signal });
+      if (signal.aborted) return;
       setRoomStatus(response.room.status);
       setHostUserId(response.room.hostUserId);
       setSlots(mapApiParticipantsToRoomSlots(response.participants));
@@ -61,24 +73,34 @@ export default function LobbyScreen({
         onNavigate('field');
       }
 
+      // 대기실에서 버블 브레이킹 없이 방이 끝난 경우(방장이 나감 등)에는 완료 화면이 아니라 홈으로 보낸다.
       if (response.room.status === 'finished') {
-        onNavigate('recommendation');
+        controllerRef.current?.abort();
+        onResetSession('방이 종료되었어요.');
       }
     } catch (fetchError) {
-      if (fetchError instanceof ApiUnauthorizedError) {
-        onResetSession(SESSION_EXPIRED_MESSAGE);
+      if (signal.aborted || isAbortError(fetchError)) return;
+      if (isSessionGoneError(fetchError)) {
+        // 404/401/403: 폴링을 멈추고 세션을 정리한다.
+        controllerRef.current?.abort();
+        onResetSession(sessionGoneMessage(fetchError));
         return;
       }
       setError(fetchError instanceof Error ? fetchError.message : '방 정보를 불러오지 못했어요');
     } finally {
-      setIsLoading(false);
-      if (options?.showRefreshing) {
-        setIsRefreshing(false);
+      if (!signal.aborted) {
+        setIsLoading(false);
+        if (options?.showRefreshing) {
+          setIsRefreshing(false);
+        }
       }
     }
   };
 
   useEffect(() => {
+    const controller = new AbortController();
+    controllerRef.current = controller;
+
     setIsLoading(true);
     void fetchRoom();
 
@@ -86,7 +108,7 @@ export default function LobbyScreen({
     // !! polling 주의 !!
     // 데모 배포에서는 자동 polling을 꺼서 request 수를 최대한 아껴요.
     if (DEMO_MODE) {
-      return;
+      return () => controller.abort();
     }
 
     // (정식배포)
@@ -96,8 +118,11 @@ export default function LobbyScreen({
       void fetchRoom();
     }, ROOM_POLLING_INTERVAL_MS);
 
-    return () => window.clearInterval(intervalId);
-  }, [roomCode, currentUserId]);
+    return () => {
+      controller.abort();
+      window.clearInterval(intervalId);
+    };
+  }, [roomCode, currentUserId, pollEpoch]);
 
   const isHost = hostUserId === currentUserId;
 
@@ -108,6 +133,30 @@ export default function LobbyScreen({
       setTimeout(() => setCopied(false), 2000);
     } catch (copyError) {
       console.error('room code copy failed', copyError);
+    }
+  };
+
+  const inviteLink = buildInviteLink(window.location.origin, roomCode);
+  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
+  const copyInviteLink = async () => {
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch (copyError) {
+      console.error('invite link copy failed', copyError);
+      setError('링크를 복사하지 못했어요. 주소를 직접 공유해주세요.');
+    }
+  };
+
+  const shareInviteLink = async () => {
+    try {
+      await navigator.share({ title: 'BubbleBreak 초대', text: `방 코드 ${roomCode}`, url: inviteLink });
+    } catch (shareError) {
+      // 사용자가 공유창을 닫은 경우(AbortError)는 무시
+      if (isAbortError(shareError)) return;
+      void copyInviteLink();
     }
   };
 
@@ -188,15 +237,21 @@ export default function LobbyScreen({
   const handleLeave = async () => {
     if (isLeaving) return;
 
+    // 1) 폴링을 먼저 중단하고 in-flight 응답은 무시한다.
+    controllerRef.current?.abort();
+
     try {
       setIsLeaving(true);
       await leaveRoom(roomCode);
+      // 2) 세션을 정리하고 홈으로 이동한다.
       onResetSession();
     } catch (leaveError) {
-      if (leaveError instanceof ApiUnauthorizedError) {
+      if (isSessionGoneError(leaveError)) {
         onResetSession();
         return;
       }
+      // 나가기에 실패했으니 폴링을 다시 켠다.
+      setPollEpoch((epoch) => epoch + 1);
       setError(leaveError instanceof Error ? leaveError.message : '방 나가기에 실패했어요');
     } finally {
       setIsLeaving(false);
@@ -212,6 +267,7 @@ export default function LobbyScreen({
             void handleLeave();
           }}
           disabled={isLeaving}
+          aria-label="뒤로가기"
           className="w-9 h-9 mb-4 bg-white/70 backdrop-blur-sm rounded-full border border-purple-100/50 shadow-sm flex items-center justify-center active:scale-95 transition-transform disabled:opacity-50"
         >
           <ArrowLeft className="w-4 h-4 text-gray-600" />
@@ -220,9 +276,6 @@ export default function LobbyScreen({
         <div className="text-center mb-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">방 대기실</h2>
           <p className="text-sm text-gray-600">참여자들이 모이면 시작할 수 있어요</p>
-          {roomStatus && (
-            <p className="text-xs text-purple-500 mt-2">현재 방 상태: {roomStatus}</p>
-          )}
         </div>
 
         {isLoading && (
@@ -262,6 +315,7 @@ export default function LobbyScreen({
               <span className="text-3xl font-bold tracking-wider text-purple-600">{roomCode}</span>
               <button
                 onClick={copyRoomCode}
+                aria-label={copied ? '방 코드 복사됨' : '방 코드 복사'}
                 className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center active:scale-95 transition-transform"
               >
                 {copied ? (
@@ -272,7 +326,30 @@ export default function LobbyScreen({
               </button>
             </div>
           </div>
-          <p className="text-xs text-center text-purple-600">이 코드를 친구들에게 공유하세요</p>
+          <p className="text-xs text-center text-purple-600 mb-4">이 코드를 친구들에게 공유하세요</p>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                void copyInviteLink();
+              }}
+              className="flex-1 bg-white/90 text-purple-700 py-2.5 rounded-full text-sm font-semibold border border-purple-200 flex items-center justify-center gap-1.5 active:scale-95 transition-transform"
+            >
+              {linkCopied ? <Check className="w-4 h-4" /> : <Link2 className="w-4 h-4" />}
+              {linkCopied ? '링크 복사됨' : '초대 링크 복사'}
+            </button>
+            {canShare && (
+              <button
+                onClick={() => {
+                  void shareInviteLink();
+                }}
+                aria-label="초대 링크 공유"
+                className="px-4 bg-white/90 text-purple-700 rounded-full border border-purple-200 flex items-center justify-center active:scale-95 transition-transform"
+              >
+                <Share2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="mb-8">
@@ -382,8 +459,8 @@ export default function LobbyScreen({
                 ? isStartEnabled
                   ? '이제 시작할 수 있어요'
                   : participantCount < 2
-                    ? '한 명 이상 더 들어오면 시작할 수 있어요'
-                    : '아직 준비 중인 친구가 있어요'
+                    ? '최소 2명이 모이면 시작할 수 있어요'
+                    : '모든 참여자가 준비완료해야 시작할 수 있어요'
                 : amIReady
                   ? '방장이 시작하면 바로 입장할 수 있어요'
                   : '준비가 끝나면 준비완료를 눌러주세요'}
@@ -405,26 +482,13 @@ export default function LobbyScreen({
               void handleLeave();
             }}
             disabled={isLeaving}
-            className="w-full bg-gray-900 text-white py-3.5 rounded-full font-medium text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform disabled:opacity-50"
+            className="w-full bg-white text-red-700 py-3.5 rounded-full font-semibold text-sm border-2 border-red-300 flex items-center justify-center gap-2 active:scale-95 transition-transform disabled:opacity-60"
           >
             <LogOut className="w-4 h-4" />
             {isLeaving ? '나가는 중...' : '방 나가기'}
           </button>
         </div>
 
-        {isHost && !isStartEnabled && (
-          <p className="text-xs text-center text-gray-500 mt-2">
-            {participantCount < 2
-              ? '최소 2명 이상일 때 시작할 수 있어요'
-              : '모든 참여자가 준비완료해야 시작할 수 있어요'}
-          </p>
-        )}
-
-        <div className="mt-6 bg-purple-50/50 rounded-2xl p-4 border border-purple-100/50">
-          <p className="text-xs text-gray-600 text-center leading-relaxed">
-            💡 최소 2명 이상일 때 버블을 터뜨릴 수 있어요
-          </p>
-        </div>
       </div>
     </div>
   );

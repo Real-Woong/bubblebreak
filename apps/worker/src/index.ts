@@ -16,6 +16,7 @@ import { finishRoomRoute } from "./routes/finishRoom";
 import { heartbeatRoute } from "./routes/heartbeat";
 import { getRoomMeRoute } from "./routes/getRoomMe";
 import { runRoomCleanup } from "./lib/cleanup";
+import { jsonError } from "./lib/http";
 import type { Env } from "./lib/db";
 
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -61,6 +62,19 @@ function getCorsHeaders(origin: string | null, env: Env) {
     "Access-Control-Allow-Credentials": "true",
     Vary: "Origin",
   };
+}
+
+// API 경로 판별: 이 prefix로 시작하는 요청은 SPA fallback(index.html)으로 보내지 않는다.
+// (프론트 라우트인 "/", "/join/:code" 등은 여기에 해당하지 않는다.)
+export function isApiPath(pathname: string) {
+  return (
+    pathname === "/rooms" ||
+    pathname.startsWith("/rooms/") ||
+    pathname === "/health" ||
+    pathname.startsWith("/health/") ||
+    pathname === "/api" ||
+    pathname.startsWith("/api/")
+  );
 }
 
 export default {
@@ -111,15 +125,20 @@ export default {
       response = await readyRoomRoute(request, env);
     } else if (request.method === "POST" && /^\/rooms\/[^/]+\/start$/.test(url.pathname)) {
       response = await startRoomRoute(request, env);
+    } else if (isApiPath(url.pathname)) {
+      // 매칭되는 API 라우트가 없으면 index.html 대신 JSON 에러를 돌려준다.
+      response = jsonError("NOT_FOUND", "Not found", 404);
     } else {
       response = await env.ASSETS.fetch(request);
     }
 
+    // ASSETS.fetch 응답의 헤더는 immutable일 수 있으므로 복제해서 CORS 헤더를 붙인다.
+    const finalResponse = new Response(response.body, response);
     for (const [key, value] of Object.entries(getCorsHeaders(requestOrigin, env))) {
-      response.headers.set(key, value);
+      finalResponse.headers.set(key, value);
     }
 
-    return response;
+    return finalResponse;
   },
 
   // cleanup은 방/세션 개수에 비례해 여러 쿼리를 도는 무거운 작업이라

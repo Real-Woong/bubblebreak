@@ -1,8 +1,15 @@
-import { Dispatch, SetStateAction, useMemo, useState } from 'react';
+import { Dispatch, SetStateAction, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Lock, Plus, X, ChevronRight } from 'lucide-react';
 import type { Screen, DeepLevel, Interest } from '../types/bubble';
 import BubblePreview from '../components/BubblePreview';
 import { createRoom, joinRoom } from '../api/room';
+import {
+  DUPLICATE_INTEREST_MESSAGE,
+  MAX_INTEREST_LENGTH,
+  evaluateInterestInput,
+  shouldIgnoreEnter,
+} from '../lib/interestInput';
+import { normalizeRoomCode } from '../lib/roomCode';
 
 // EntryScreen 에서 선택한 진입 흐름
 // create = 방 만들기, join = 방 참여하기
@@ -37,10 +44,10 @@ type SetupScreenProps = {
   setCurrentUserId: Dispatch<SetStateAction<string>>;
 
   // create/join 성공 후 받은 실제 roomCode 저장
-  setRoomCode: Dispatch<SetStateAction<string>>;
+  setRoomCode: (roomCode: string) => void;
 
   // App.tsx 의 화면 전환 setter 그대로 받음
-  onNavigate: Dispatch<SetStateAction<Screen>>;
+  onNavigate: (screen: Screen) => void;
 };
 
 // ── Original purple/pink palette, one shade per depth level ──────────────────
@@ -55,9 +62,9 @@ const PREVIEW_H    = 190;  // preview container height in px
 const CONTAINER_W  = 335;  // usable width (375 − px-5*2)
 const MIN_GAP      = 8;    // minimum gap between bubble edges in px
 const PREVIEW_SIZE_RANGE: Record<DeepLevel, [number, number]> = {
-  deep1: [52, 68],
-  deep2: [44, 60],
-  deep3: [36, 52]
+  deep1: [64, 78],
+  deep2: [56, 70],
+  deep3: [48, 62]
 };
 
 // ── Collision-aware  ㅇstable placement ─────────────────────────────────────────
@@ -171,46 +178,58 @@ export default function SetupScreen({
   // create/join 실패 시 보여줄 에러 메시지
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // 관심사 입력 피드백(중복 등). 잠깐 보여주고 자동으로 사라진다.
+  const [inputNotice, setInputNotice] = useState<string | null>(null);
+  const inputNoticeTimerRef = useRef<number | null>(null);
+
+  const showInputNotice = (message: string) => {
+    setInputNotice(message);
+    if (inputNoticeTimerRef.current) window.clearTimeout(inputNoticeTimerRef.current);
+    inputNoticeTimerRef.current = window.setTimeout(() => setInputNotice(null), 2000);
+  };
+
+  useEffect(
+    () => () => {
+      if (inputNoticeTimerRef.current) window.clearTimeout(inputNoticeTimerRef.current);
+    },
+    []
+  );
+
   // 현재 선택한 depth(activeLevel)에 관심사를 추가하는 함수
-  // 규칙:
-  // - 공백만 있는 문자열은 추가하지 않음
+  // 규칙(lib/interestInput.ts 의 evaluateInterestInput 참고):
+  // - 앞뒤 공백을 trim하고 빈 값은 무시
   // - 각 depth 는 최대 3개까지만 허용
-  // - text 는 trim 해서 저장
+  // - 같은 depth 안의 중복은 추가하지 않고 안내 문구를 보여줌
   // - preview/field 공통 로직이 interest.id 를 사용하므로 draft 단계에서도 id 는 유지
-  const addInterestText = (text: string) => {
-    const trimmed = text.trim();
+  const addInterestText = (text: string): 'added' | 'duplicate' | 'ignored' => {
+    const levelTexts = interests.filter((i) => i.level === activeLevel).map((i) => i.text);
+    const result = evaluateInterestInput(text, levelTexts);
 
-    // 빈 문자열이면 추가하지 않음
-    if (!trimmed) return false;
+    if (result.status === 'duplicate') return 'duplicate';
+    if (result.status !== 'added') return 'ignored';
 
-    // 현재 탭(depth)에 이미 몇 개 들어갔는지 계산
-    const levelInterests = interests.filter((i) => i.level === activeLevel);
-
-    // depth 별 최대 3개 제한
-    if (levelInterests.length >= 3) return false;
-
-    // 같은 단계 안에서 같은 관심사를 중복으로 넣지 않음
-    if (levelInterests.some((interest) => interest.text === trimmed)) return false;
-
-    // 부모(App.tsx)가 들고 있는 interests 상태에 새 항목 추가
     setInterests((prev) => [
       ...prev,
       {
         id: crypto.randomUUID(),
-        text: trimmed,
+        text: result.text,
         level: activeLevel,
       },
     ]);
 
-    return true;
+    return 'added';
   };
 
   const addInterest = () => {
-    const didAdd = addInterestText(inputValue);
+    const result = addInterestText(inputValue);
 
-    // 입력 완료 후 입력창 비우기
-    if (didAdd) {
+    // 추가됐거나 중복이면 입력창을 비운다. (중복인데 남겨두면 이어 쓴 글자가 붙어버린다)
+    if (result === 'added') {
       setInputValue('');
+      setInputNotice(null);
+    } else if (result === 'duplicate') {
+      setInputValue('');
+      showInputNotice(DUPLICATE_INTEREST_MESSAGE);
     }
   };
 
@@ -256,7 +275,7 @@ export default function SetupScreen({
   const submitLabel = mode === 'join' ? '입력 완료하고 입장하기' : '방 만들고 입장하기';
 
   // join 흐름일 때만 보여줄 방 코드 표시값
-  const normalizedRoomCode = roomCodeInput.trim().toUpperCase();
+  const normalizedRoomCode = normalizeRoomCode(roomCodeInput);
 
   const currentInterests = interests.filter((i) => i.level === activeLevel);
   const currentLevel      = levels.find((l) => l.id === activeLevel)!;
@@ -320,6 +339,7 @@ export default function SetupScreen({
           {/* 방을 아직 안 만들었으면 entry로, 이미 방에 들어간 상태(대기실에서 수정하러 온 경우)면 lobby로 */}
           <button
             onClick={() => onNavigate(roomCode ? 'lobby' : 'entry')}
+            aria-label="뒤로가기"
             className="w-9 h-9 mb-4 bg-white/70 backdrop-blur-sm rounded-full border border-purple-100/50 shadow-sm flex items-center justify-center active:scale-95 transition-transform"
           >
             <ArrowLeft className="w-4 h-4 text-gray-600" />
@@ -421,8 +441,9 @@ export default function SetupScreen({
                   <button
                     key={example}
                     onClick={() => {
-                      if (addInterestText(example)) {
+                      if (addInterestText(example) === 'added') {
                         setInputValue('');
+                        setInputNotice(null);
                       }
                     }}
                     disabled={isFull || alreadyAdded}
@@ -448,23 +469,34 @@ export default function SetupScreen({
                   onCompositionEnd={() => setIsComposing(false)}
                   onKeyDown={(e) => {
                     if (e.key !== 'Enter') return;
-                    const native = (e as any).nativeEvent;
-                    if (isComposing || native?.isComposing) return;
+                    // 한글 IME 조합 중 Enter는 글자 확정용이므로 무시한다.
+                    if (shouldIgnoreEnter(e.nativeEvent, isComposing)) return;
                     e.preventDefault();
                     addInterest();
                   }}
+                  aria-label="관심사 직접 입력"
                   placeholder={isFull ? `${currentLevel.label} 최대 3개 입력됨` : '직접 입력하기'}
-                  maxLength={20}
+                  maxLength={MAX_INTEREST_LENGTH}
                   disabled={isFull}
                   className="flex-1 min-w-0 bg-white/90 backdrop-blur-sm border-2 border-purple-200 rounded-full px-5 py-3 text-sm focus:outline-none focus:border-purple-400 disabled:opacity-50"
                 />
                 <button
                   onClick={addInterest}
+                  aria-label="관심사 추가"
                   disabled={!inputValue.trim() || isFull}
                   className="w-12 h-12 shrink-0 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-md active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Plus className="w-5 h-5 text-white" />
                 </button>
+              </div>
+
+              <div className="flex items-center justify-between mt-2 px-2 min-h-[16px]">
+                <p role="status" className="text-xs text-amber-700">
+                  {inputNotice}
+                </p>
+                <span className="text-xs text-gray-500 tabular-nums">
+                  {inputValue.length}/{MAX_INTEREST_LENGTH}
+                </span>
               </div>
             </div>
           </div>
@@ -485,6 +517,7 @@ export default function SetupScreen({
                     <span>{interest.text}</span>
                     <button
                       onClick={() => removeInterest(interest.id)}
+                      aria-label={`${interest.text} 삭제`}
                       className="ml-1 hover:bg-white/20 rounded-full p-0.5"
                     >
                       <X className="w-3.5 h-3.5" />

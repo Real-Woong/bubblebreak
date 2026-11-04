@@ -1,5 +1,6 @@
 import { Lock } from 'lucide-react';
 import type { Interest } from '../types/bubble';
+import { fitBubbleText } from '../lib/fitBubbleText';
 
 const LEVEL_GRADIENTS: Record<Interest['level'], string> = {
   deep1: 'from-purple-400 to-purple-500',
@@ -28,6 +29,11 @@ export default function BubblePreview({
 }) {
   const gradient = LEVEL_GRADIENTS[interest.level];
   const size = externalSize ?? (LEVEL_SIZES[interest.level] + (index % 2 === 0 ? 0 : 4));
+  const fit = fitBubbleText(interest.text, size, {
+    baseFontSize: forceLabelVisible ? 11 : size >= 76 ? 13 : 12,
+    minFontSize: 9,
+    maxLines: 3
+  });
 
   return (
     <div
@@ -42,9 +48,18 @@ export default function BubblePreview({
       )}
 
       <span
-        className={`px-2 text-white font-medium leading-tight text-center ${
-          forceLabelVisible ? 'text-[11px] whitespace-normal break-keep' : 'text-xs'
-        }`}
+        className="text-white font-medium text-center"
+        style={{
+          fontSize: `${fit.fontSize}px`,
+          lineHeight: 1.15,
+          maxWidth: `${fit.maxWidth}px`,
+          wordBreak: 'keep-all',
+          overflowWrap: 'anywhere',
+          display: '-webkit-box',
+          WebkitLineClamp: fit.lineClamp,
+          WebkitBoxOrient: 'vertical',
+          overflow: 'hidden'
+        }}
       >
         {interest.text}
       </span>

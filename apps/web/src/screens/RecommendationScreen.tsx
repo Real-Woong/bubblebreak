@@ -3,6 +3,7 @@ import { ArrowLeft, MessageCircle, Sparkles } from 'lucide-react';
 import type { ApiRoomSummaryPair } from '../types/api';
 import { getRoomSummary } from '../api/room';
 import { ApiUnauthorizedError } from '../api/client';
+import { isAbortError } from '../api/errors';
 
 const SESSION_EXPIRED_MESSAGE = '세션이 만료됐어요. 다시 입장해주세요.';
 
@@ -75,18 +76,25 @@ export default function RecommendationScreen({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // roomCode가 비어 있으면 /rooms//summary 같은 요청을 보내지 않고 홈으로 돌려보낸다.
+    if (!roomCode.trim()) {
+      onExit();
+      return;
+    }
+
     let cancelled = false;
+    const controller = new AbortController();
 
     (async () => {
       try {
         setIsLoading(true);
         setError(null);
-        const response = await getRoomSummary(roomCode);
+        const response = await getRoomSummary(roomCode, { signal: controller.signal });
         if (!cancelled) {
           setPairs(response.pairs);
         }
       } catch (fetchError) {
-        if (cancelled) return;
+        if (cancelled || isAbortError(fetchError)) return;
         if (fetchError instanceof ApiUnauthorizedError) {
           onExit(SESSION_EXPIRED_MESSAGE);
           return;
@@ -99,6 +107,7 @@ export default function RecommendationScreen({
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [roomCode, onExit]);
 
@@ -109,6 +118,7 @@ export default function RecommendationScreen({
       <div className="max-w-[375px] mx-auto">
         <button
           onClick={() => onExit()}
+          aria-label="뒤로가기"
           className="w-9 h-9 mb-4 bg-white/80 backdrop-blur-sm rounded-full border border-purple-100 shadow-sm flex items-center justify-center active:scale-95 transition-transform"
         >
           <ArrowLeft className="w-4 h-4 text-gray-600" />
